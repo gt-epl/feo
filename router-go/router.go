@@ -20,6 +20,8 @@ type router struct {
 	scheme string
 	host string
 	weight int
+	// Microseconds
+	timeElapsed float64
 }
 var routerList []router
 
@@ -31,6 +33,7 @@ var backendUrlHost string
 
 var reqCount int
 var routerListMutex sync.RWMutex
+var routerMutex []sync.RWMutex
 
 
 func PopulateForwardList(routerListString string, myHostAddr string) {
@@ -45,7 +48,11 @@ func PopulateForwardList(routerListString string, myHostAddr string) {
 			newRouter.scheme = routerUrl.Scheme
 			newRouter.host = routerUrl.Host
 			newRouter.weight = 1
+			newRouter.timeElapsed = 0.0
 			routerList = append(routerList, newRouter)
+			
+			// var newRouterMutex sync.RWMutex
+			routerMutex = append(routerMutex, sync.RWMutex{})
 		}
 	}
 }
@@ -53,6 +60,15 @@ func PopulateForwardList(routerListString string, myHostAddr string) {
 func GetRouterIdx() int {
 	// We need to decide which router to forward the request to
 	return 0
+}
+
+func UpdateRouterWeight(elapsed time.Duration, idx int) {
+	// Updating the weight of the peer router. We don't have to do this always. But when we do, we need to take a lock.
+	alpha := 0.1
+	routerMutex[idx].Lock()
+	routerList[idx].timeElapsed = routerList[idx].timeElapsed * (1-alpha) + float64(elapsed.Microseconds()) * alpha
+	log.Println(routerList[idx].timeElapsed)
+	routerMutex[idx].Unlock()
 }
 
 // Should we create the client outside the handler? But there can be simulate
@@ -81,14 +97,15 @@ func (*routerHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	routerListMutex.Unlock()
 	
 	forwardedField := req.Header.Get("X-Forwarded-For")
+	routerIdx := -1
 	// NOTE: Only if this has not been forwarded by another router. DESIGN DECISION!
 	if (len(strings.TrimSpace(forwardedField)) == 0 && reqCountLocal%5 == 0) {
-		routerIdx := GetRouterIdx()
+		routerIdx = GetRouterIdx()
 		req.URL.Scheme = routerList[routerIdx].scheme
 		req.URL.Host = routerList[routerIdx].host
 		req.RequestURI = ""
 		req.Header.Set("X-Forwarded-For", req.RemoteAddr)
-		log.Println("Forwarding to another router")
+		// log.Println("Forwarding to another router")
 	} else {
 		req.URL.Scheme = backendUrlScheme
 		req.URL.Host = backendUrlHost
@@ -97,6 +114,11 @@ func (*routerHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		req.Header.Set("X-Forwarded-For", req.RemoteAddr)
 	}
 
+	var now time.Time
+	if (routerIdx != -1) {
+		now = time.Now()
+	}
+	
 	resp, err := client.Do(req)
 	if (err != nil) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -104,6 +126,12 @@ func (*routerHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	} else {
 		// body,_ := ioutil.ReadAll(resp.Body)
 		// fmt.Fprintf(w, string(body))
+
+		if (routerIdx != -1) {
+			elapsed := time.Since(now)
+			UpdateRouterWeight(elapsed, routerIdx)
+		}
+
 		io.Copy(w, resp.Body)
 		resp.Body.Close()
 	}
