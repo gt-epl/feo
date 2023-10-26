@@ -168,7 +168,7 @@ func main() {
 	//
 	reqCount = 0
 	s := &http.Server{
-		Addr:           os.Args[1],
+		Addr:           ":" + strings.Split(os.Args[1], ":")[1],
 		Handler:        &routerHandler{},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
