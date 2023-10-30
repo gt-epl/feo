@@ -20,7 +20,8 @@ docker run --rm -d \
   -h openwhisk2 --name openwhisk2 \
   -p 3235:3233 -p 3234:3232 \
   -v /var/run/docker.sock:/var/run/docker.sock \
- "$IMAGE"
+  -v ./custom.conf:/custom.conf \
+ "$IMAGE" -c custom.conf
 docker exec openwhisk2 waitready
 #case "$(uname)" in
 # (Linux) xdg-open http://localhost:3232 ;;
