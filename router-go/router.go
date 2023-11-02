@@ -3,7 +3,7 @@ package main
 
 import (
 	// "bytes"
-	// "fmt"
+	"fmt"
 	"log"
 	"io"
 	// "io/ioutil"
@@ -31,8 +31,9 @@ var client http.Client
 var backendUrlScheme string
 var backendUrlHost string
 
-var reqCount int
+var reqQueueCount int
 var routerListMutex sync.RWMutex
+
 var routerMutex []sync.RWMutex
 
 
@@ -90,16 +91,17 @@ func (*routerHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// We could use time as the factor to decide whether to offload?
 	
 	// NOTE: We need to change this to read mutexes when we are not using these count based routing.
-	var reqCountLocal int
+	var reqQueueCountIngress int
 	routerListMutex.Lock()
-	reqCount += 1
-	reqCountLocal = reqCount
+	reqQueueCount += 1
+	reqQueueCountIngress = reqQueueCount
 	routerListMutex.Unlock()
 	
 	forwardedField := req.Header.Get("X-Forwarded-For")
 	routerIdx := -1
-	// NOTE: Only if this has not been forwarded by another router. DESIGN DECISION!
-	if (len(strings.TrimSpace(forwardedField)) == 0 && reqCountLocal%5 == 0) {
+
+	// NOTE: Implement policy below
+	if (len(strings.TrimSpace(forwardedField)) == 0 && reqQueueCountIngress >= 5) {
 		routerIdx = GetRouterIdx()
 		req.URL.Scheme = routerList[routerIdx].scheme
 		req.URL.Host = routerList[routerIdx].host
@@ -120,6 +122,18 @@ func (*routerHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	
 	resp, err := client.Do(req)
+
+	var reqQueueCountEgress int
+	routerListMutex.Lock()
+	reqQueueCount -= 1
+	reqQueueCountEgress = reqQueueCount
+	routerListMutex.Unlock()
+
+	if (reqQueueCountEgress >= 5) {
+		// Implement policy.
+		fmt.Println(reqQueueCountEgress)
+	}
+	
 	if (err != nil) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		// resp.Body.Close()?
@@ -166,7 +180,7 @@ func main() {
 	}
 
 	//
-	reqCount = 0
+	reqQueueCount = 0
 	s := &http.Server{
 		Addr:           ":" + strings.Split(os.Args[1], ":")[1],
 		Handler:        &routerHandler{},
