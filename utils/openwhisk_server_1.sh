@@ -15,13 +15,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-IMAGE="standalone:latest"
+IMAGE="openwhisk-standalone:nightly"
 docker run --rm -d \
-  -h openwhisk1 --name openwhisk1 \
+  -h openwhisk --name openwhisk \
   -p 3233:3233 -p 3232:3232 \
   -v /var/run/docker.sock:/var/run/docker.sock \
- "$IMAGE"
-docker exec openwhisk1 waitready
+  -v ./custom.conf:/custom.conf \
+ "$IMAGE" -c custom.conf
+docker exec openwhisk waitready
 #case "$(uname)" in
 # (Linux) xdg-open http://localhost:3232 ;;
 # (Darwin) open http://localhost:3232 ;;

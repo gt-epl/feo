@@ -17,12 +17,12 @@
 #
 IMAGE="openwhisk/standalone:nightly"
 docker run --rm -d \
-  -h openwhisk2 --name openwhisk2 \
-  -p 3235:3233 -p 3234:3232 \
+  -h openwhisk --name openwhisk \
+  -p 3233:3233 -p 3232:3232 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v ./custom.conf:/custom.conf \
  "$IMAGE" -c custom.conf
-docker exec openwhisk2 waitready
+docker exec openwhisk waitready
 #case "$(uname)" in
 # (Linux) xdg-open http://localhost:3232 ;;
 # (Darwin) open http://localhost:3232 ;;
