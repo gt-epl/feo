@@ -3,6 +3,7 @@ package main
 import (
 	"container/list"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -12,16 +13,16 @@ import (
 type OffloadPolicy string
 
 const (
-	OffloadAlternate = "alternate"
-	OffloadFederated = "federated"
-	OffloadCentrak   = "central"
+	OffloadRoundRobin = "roundrobin"
+	OffloadFederated  = "federated"
+	OffloadCentrak    = "central"
 )
 
 func OffloadFactory(pol OffloadPolicy, routerList []router, host string) OffloaderIntf {
 	base := newBaseOffloader(host, routerList)
 	switch pol {
-	case OffloadAlternate:
-		return &AlternateOffloader{local_flag: true, BaseOffloader: base}
+	case OffloadRoundRobin:
+		return newRoundRobinOffloader(base)
 	default:
 		return base
 	}
@@ -58,14 +59,14 @@ type OffloaderIntf interface {
 }
 
 type BaseOffloader struct {
-	finfo      FunctionInfo
-	host       string
-	routerList []router
+	Finfo      FunctionInfo
+	Host       string
+	RouterList []router
 }
 
 func newBaseOffloader(host string, routerList []router) *BaseOffloader {
-	o := BaseOffloader{}
-	o.finfo.invoke_list = list.New()
+	o := BaseOffloader{Host: host, RouterList: routerList}
+	o.Finfo.invoke_list = list.New()
 	return &o
 }
 
@@ -74,23 +75,24 @@ func (o *BaseOffloader) checkAndEnq(req *http.Request) (*list.Element, bool) {
 }
 
 func (o *BaseOffloader) isOffloaded(req *http.Request) bool {
-	forwardedField := req.Header.Get("X-Forwarded-For")
+	forwardedField := req.Header.Get("X-Offloaded-For")
+	log.Println("[DEBUG]isOffloaded ", forwardedField)
 	return len(strings.TrimSpace(forwardedField)) != 0
 }
 
 func (o *BaseOffloader) forceEnq(req *http.Request) *list.Element {
 	//template string (/api/v1/namespaces/guest/actions/copy)
-	o.finfo.mu.Lock()
-	defer o.finfo.mu.Unlock()
-	o.finfo.name = strings.Split(req.URL.Path, "/")[5]
-	ctx := o.finfo.invoke_list.PushBack(time.Now())
+	o.Finfo.mu.Lock()
+	defer o.Finfo.mu.Unlock()
+	o.Finfo.name = strings.Split(req.URL.Path, "/")[5]
+	ctx := o.Finfo.invoke_list.PushBack(time.Now())
 	return ctx
 }
 
 func (o *BaseOffloader) Deq(req *http.Request, ctx *list.Element) {
-	o.finfo.mu.Lock()
-	defer o.finfo.mu.Unlock()
-	o.finfo.invoke_list.Remove(ctx)
+	o.Finfo.mu.Lock()
+	defer o.Finfo.mu.Unlock()
+	o.Finfo.invoke_list.Remove(ctx)
 }
 
 func (o *BaseOffloader) getOffloadCandidate(req *http.Request) string {
@@ -98,7 +100,7 @@ func (o *BaseOffloader) getOffloadCandidate(req *http.Request) string {
 }
 
 func (o *BaseOffloader) getStatusStr() string {
-	snap := o.finfo.getSnapshot()
+	snap := o.Finfo.getSnapshot()
 	snap.HasCapacity = false
 	jbytes, _ := json.Marshal(snap)
 	return string(jbytes)
