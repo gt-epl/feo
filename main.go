@@ -25,7 +25,7 @@ type router struct {
 }
 
 type offloadHandler struct {
-	host      string //local faas node
+	host      string
 	offloader OffloaderIntf
 }
 
@@ -37,10 +37,14 @@ func PopulateForwardList(routerListString string) []router {
 	var routerList []router
 	routerStringList := strings.Split(routerListString, "\n")
 	for _, routerString := range routerStringList {
+		if routerString == "" {
+			continue
+		}
 		routerUrl, err := url.Parse(routerString)
 		if err != nil {
 			log.Fatal("PopulateForwardList: Error parsing router list")
 		}
+
 		var newRouter router
 		newRouter.scheme = routerUrl.Scheme
 		newRouter.host = routerUrl.Host
@@ -51,14 +55,19 @@ func PopulateForwardList(routerListString string) []router {
 	return routerList
 }
 
-func createProxyReq(originalReq *http.Request, offloadee string) *http.Request {
+func (o *offloadHandler) createProxyReq(originalReq *http.Request, target string, isOffload bool) *http.Request {
 	ODMN_PORT := "9696"
 	FAAS_PORT := "3233"
 
 	var newHost string
-	if offloadee == "" {
-		newHost = strings.Replace(originalReq.Host, ODMN_PORT, FAAS_PORT, 1)
+	ip := strings.Split(target, ":")[0]
+
+	if isOffload {
+		newHost = ip + ":" + ODMN_PORT
+	} else {
+		newHost = ip + ":" + FAAS_PORT
 	}
+	log.Println("[INFO] created Proxy newHost", newHost)
 
 	url := url.URL{
 		Scheme:   "http",
@@ -69,6 +78,10 @@ func createProxyReq(originalReq *http.Request, offloadee string) *http.Request {
 
 	upstreamReq, err := http.NewRequest(originalReq.Method, url.String(), originalReq.Body)
 	upstreamReq.Header = originalReq.Header
+
+	if isOffload {
+		upstreamReq.Header.Set("X-Offloaded-For", o.host)
+	}
 
 	if err != nil {
 		//should not happen
@@ -99,17 +112,18 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// Begin OFFLOAD Steps
 		candidate := r.offloader.getOffloadCandidate(req)
 		if candidate != r.host {
-			proxyReq := createProxyReq(req, candidate)
+			log.Println("[INFO] offload to ", candidate)
+			proxyReq := r.createProxyReq(req, candidate, true)
 			var err error
 			resp, err = client.Do(proxyReq)
 			if err != nil {
-				log.Printf("[WARN] offload http request failed")
+				log.Println("[WARN] offload http request failed: ", err)
 				localExecution = true
 			} else {
 				jstr := resp.Header.Get("Offload-Status")
 				snap := Snapshot{}
 				err := json.Unmarshal([]byte(jstr), &snap)
-				if err != nil {
+				if err == nil {
 					localExecution = !snap.HasCapacity
 				}
 			}
@@ -128,15 +142,15 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// self local processing
 		// conditions: localEnq was successful OR offload failed and forced enq
 		var err error
-		proxyReq := createProxyReq(req, "")
+		proxyReq := r.createProxyReq(req, r.host, false)
 		resp, err = client.Do(proxyReq)
 		if err != nil {
 			//something bad happened
 			log.Println("local processing returned error", err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 		}
+		r.offloader.Deq(req, ctx)
 	}
-	r.offloader.Deq(req, ctx)
 	io.Copy(w, resp.Body)
 	if resp.Body != nil {
 		resp.Body.Close()
@@ -163,12 +177,12 @@ func main() {
 	}
 
 	//TODO: use gflags instead of os.Args
-	policy := OffloadPolicy("base")
-	cur_offloader := OffloadFactory(policy, routerList, strings.Split(routerList[0].host, ":")[0])
+	policy := OffloadPolicy("roundrobin")
+	cur_offloader := OffloadFactory(policy, routerList, routerList[0].host)
 
 	s := &http.Server{
 		Addr:           routerList[0].host,
-		Handler:        &offloadHandler{offloader: cur_offloader},
+		Handler:        &offloadHandler{offloader: cur_offloader, host: routerList[0].host},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
