@@ -2,11 +2,13 @@
 package main
 
 import (
+	"container/list"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 
+	"flag"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,11 +31,8 @@ type offloadHandler struct {
 
 var client http.Client
 
-var backendUrlScheme string
-var backendUrlHost string
-
 // TODO: use a yaml/json encoder to convert this.
-func PopulateForwardList(routerListString string, myHostAddr string) []router {
+func PopulateForwardList(routerListString string) []router {
 
 	var routerList []router
 	routerStringList := strings.Split(routerListString, "\n")
@@ -42,27 +41,49 @@ func PopulateForwardList(routerListString string, myHostAddr string) []router {
 		if err != nil {
 			log.Fatal("PopulateForwardList: Error parsing router list")
 		}
-		if routerUrl.Host != myHostAddr {
-			var newRouter router
-			newRouter.scheme = routerUrl.Scheme
-			newRouter.host = routerUrl.Host
-			newRouter.weight = 1
-			newRouter.timeElapsed = 0.0
-			routerList = append(routerList, newRouter)
-		}
+		var newRouter router
+		newRouter.scheme = routerUrl.Scheme
+		newRouter.host = routerUrl.Host
+		newRouter.weight = 1
+		newRouter.timeElapsed = 0.0
+		routerList = append(routerList, newRouter)
 	}
 	return routerList
 }
 
 func createProxyReq(originalReq *http.Request, offloadee string) *http.Request {
-	return originalReq
+	ODMN_PORT := "9696"
+	FAAS_PORT := "3233"
+
+	var newHost string
+	if offloadee == "" {
+		newHost = strings.Replace(originalReq.Host, ODMN_PORT, FAAS_PORT, 1)
+	}
+
+	url := url.URL{
+		Scheme:   "http",
+		Host:     newHost,
+		Path:     originalReq.URL.Path,
+		RawQuery: originalReq.URL.RawQuery,
+	}
+
+	upstreamReq, err := http.NewRequest(originalReq.Method, url.String(), originalReq.Body)
+	upstreamReq.Header = originalReq.Header
+
+	if err != nil {
+		//should not happen
+		return nil
+	}
+
+	return upstreamReq
 }
 
 func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	var resp *http.Response
-	defer resp.Body.Close()
-	localExecution := r.offloader.checkAndEnq(req)
+	var ctx *list.Element
+	log.Println("Recv req")
+	ctx, localExecution := r.offloader.checkAndEnq(req)
 
 	if !localExecution {
 		if r.offloader.isOffloaded(req) {
@@ -97,16 +118,17 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		if localExecution {
-			r.offloader.forceEnq(req)
+			ctx = r.offloader.forceEnq(req)
 		}
 	}
 
 	// NOTE: this is not as an "else" block because local execution is possible despite taking the first branch
 	if localExecution {
+		log.Println("Forwarding to local FaaS Node")
 		// self local processing
 		// conditions: localEnq was successful OR offload failed and forced enq
 		var err error
-		proxyReq := createProxyReq(req, "self")
+		proxyReq := createProxyReq(req, "")
 		resp, err = client.Do(proxyReq)
 		if err != nil {
 			//something bad happened
@@ -114,42 +136,38 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 		}
 	}
+	r.offloader.Deq(req, ctx)
 	io.Copy(w, resp.Body)
+	if resp.Body != nil {
+		resp.Body.Close()
+	} else {
+		log.Println("Response is empty!")
+	}
 }
 
 func main() {
 	// client := &http.Client{}
+	var nodelist = flag.String("nodelist", "routerlist.txt", "file containing line separated nodeip:port for offload candidates")
 
-	backendUrl, err := url.Parse(os.Args[2])
-	if err != nil {
-		log.Fatal("Error in backend url provided")
-	}
-	backendUrlScheme = backendUrl.Scheme
-	if backendUrlScheme == "" {
-		log.Fatal("Error in backend url provided")
-	}
-	backendUrlHost = backendUrl.Host
-	if backendUrlHost == "" {
-		log.Fatal("Error in backend url provided")
-	}
+	//backendUrl := url.Parse("http://host:3233/api/v1/namespaces/guest/actions/copy?blocking=true&result=true")
 
-	routerListString, err := os.ReadFile("routerlist.txt")
+	routerListString, err := os.ReadFile(*nodelist)
 	if err != nil {
 		log.Fatal("Error in reading router list file.")
 	}
 
 	// NOTE: We need os.Args[1] to be the value that we are going to use in the router list file!!
-	routerList := PopulateForwardList(string(routerListString), os.Args[1])
+	routerList := PopulateForwardList(string(routerListString))
 	for _, ele := range routerList {
 		log.Println(ele.host)
 	}
 
 	//TODO: use gflags instead of os.Args
-	policy := OffloadPolicy("alternate")
-	cur_offloader := OffloadFactory(policy, routerList, os.Args[1])
+	policy := OffloadPolicy("base")
+	cur_offloader := OffloadFactory(policy, routerList, strings.Split(routerList[0].host, ":")[0])
 
 	s := &http.Server{
-		Addr:           ":" + strings.Split(os.Args[1], ":")[1],
+		Addr:           routerList[0].host,
 		Handler:        &offloadHandler{offloader: cur_offloader},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
