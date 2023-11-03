@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 type OffloadPolicy string
@@ -17,7 +18,7 @@ const (
 )
 
 func OffloadFactory(pol OffloadPolicy, routerList []router, host string) OffloaderIntf {
-	base := &BaseOffloader{routerList: routerList, host: host}
+	base := newBaseOffloader(host, routerList)
 	switch pol {
 	case OffloadAlternate:
 		return &AlternateOffloader{local_flag: true, BaseOffloader: base}
@@ -48,8 +49,9 @@ type Snapshot struct {
 }
 
 type OffloaderIntf interface {
-	checkAndEnq(req *http.Request) bool
-	forceEnq(req *http.Request)
+	checkAndEnq(req *http.Request) (*list.Element, bool)
+	forceEnq(req *http.Request) *list.Element
+	Deq(req *http.Request, ctx *list.Element)
 	isOffloaded(req *http.Request) bool
 	getOffloadCandidate(req *http.Request) string
 	getStatusStr() string
@@ -61,12 +63,14 @@ type BaseOffloader struct {
 	routerList []router
 }
 
-func (o *BaseOffloader) checkAndEnq(req *http.Request) bool {
-	if o.isOffloaded(req) {
+func newBaseOffloader(host string, routerList []router) *BaseOffloader {
+	o := BaseOffloader{}
+	o.finfo.invoke_list = list.New()
+	return &o
+}
 
-		return true
-	}
-	return true
+func (o *BaseOffloader) checkAndEnq(req *http.Request) (*list.Element, bool) {
+	return o.forceEnq(req), true
 }
 
 func (o *BaseOffloader) isOffloaded(req *http.Request) bool {
@@ -74,8 +78,19 @@ func (o *BaseOffloader) isOffloaded(req *http.Request) bool {
 	return len(strings.TrimSpace(forwardedField)) != 0
 }
 
-func (o *BaseOffloader) forceEnq(req *http.Request) {
+func (o *BaseOffloader) forceEnq(req *http.Request) *list.Element {
+	//template string (/api/v1/namespaces/guest/actions/copy)
+	o.finfo.mu.Lock()
+	defer o.finfo.mu.Unlock()
+	o.finfo.name = strings.Split(req.URL.Path, "/")[5]
+	ctx := o.finfo.invoke_list.PushBack(time.Now())
+	return ctx
+}
 
+func (o *BaseOffloader) Deq(req *http.Request, ctx *list.Element) {
+	o.finfo.mu.Lock()
+	defer o.finfo.mu.Unlock()
+	o.finfo.invoke_list.Remove(ctx)
 }
 
 func (o *BaseOffloader) getOffloadCandidate(req *http.Request) string {

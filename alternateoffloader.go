@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/list"
 	"net/http"
 )
 
@@ -9,8 +10,8 @@ type AlternateOffloader struct {
 	local_flag     bool
 }
 
-func (o *AlternateOffloader) checkAndEnq(req *http.Request) bool {
-	return true
+func (o *AlternateOffloader) checkAndEnq(req *http.Request) (*list.Element, bool) {
+	return nil, true
 }
 
 func (o *AlternateOffloader) getOffloadCandidate(req *http.Request) string {
