@@ -14,6 +14,7 @@ type OffloadPolicy string
 
 const (
 	OffloadRoundRobin = "roundrobin"
+	OffloadRandom = "random"
 	OffloadFederated  = "federated"
 	OffloadCentrak    = "central"
 )
@@ -23,6 +24,8 @@ func OffloadFactory(pol OffloadPolicy, routerList []router, host string) Offload
 	switch pol {
 	case OffloadRoundRobin:
 		return newRoundRobinOffloader(base)
+	case OffloadRandom:
+		return newRandomOffloader(base)
 	default:
 		return base
 	}
