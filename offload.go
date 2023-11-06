@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"encoding/json"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -14,7 +15,7 @@ type OffloadPolicy string
 
 const (
 	OffloadRoundRobin = "roundrobin"
-	OffloadRandom = "random"
+	OffloadRandom     = "random"
 	OffloadFederated  = "federated"
 	OffloadCentrak    = "central"
 )
@@ -23,10 +24,16 @@ func OffloadFactory(pol OffloadPolicy, routerList []router, host string) Offload
 	base := newBaseOffloader(host, routerList)
 	switch pol {
 	case OffloadRoundRobin:
+		log.Println("[INFO] Selecting RoundRobin Offloader")
 		return newRoundRobinOffloader(base)
 	case OffloadRandom:
+		log.Println("[INFO] Selecting Random Offloader")
 		return newRandomOffloader(base)
+	case OffloadFederated:
+		log.Println("[INFO] Selecting Federated Offloader")
+		return newFederatedOffloader(base)
 	default:
+		log.Println("[WARNING] No policy specified. Selecting Base Offloader")
 		return base
 	}
 }
@@ -39,7 +46,7 @@ type FunctionInfo struct {
 
 func (f *FunctionInfo) getSnapshot() Snapshot {
 	f.mu.Lock()
-	defer f.mu.Lock()
+	defer f.mu.Unlock()
 	return Snapshot{
 		Name: f.name,
 		Qlen: f.invoke_list.Len(),
@@ -65,16 +72,25 @@ type BaseOffloader struct {
 	Finfo      FunctionInfo
 	Host       string
 	RouterList []router
+	Qlen_max   int32
 }
 
 func newBaseOffloader(host string, routerList []router) *BaseOffloader {
-	o := BaseOffloader{Host: host, RouterList: routerList}
+	o := BaseOffloader{Host: host, RouterList: routerList, Qlen_max: math.MaxInt32}
 	o.Finfo.invoke_list = list.New()
 	return &o
 }
 
 func (o *BaseOffloader) checkAndEnq(req *http.Request) (*list.Element, bool) {
-	return o.forceEnq(req), true
+	log.Println("[DEBUG] in checkAndEnq")
+	o.Finfo.mu.Lock()
+	defer o.Finfo.mu.Unlock()
+	log.Println("[DEBUG ]qlen: ", o.Finfo.invoke_list.Len())
+	if o.Finfo.invoke_list.Len() < int(o.Qlen_max) {
+		return o.Finfo.invoke_list.PushBack(time.Now()), true
+	} else {
+		return nil, false
+	}
 }
 
 func (o *BaseOffloader) isOffloaded(req *http.Request) bool {
@@ -103,8 +119,12 @@ func (o *BaseOffloader) getOffloadCandidate(req *http.Request) string {
 }
 
 func (o *BaseOffloader) getStatusStr() string {
+	log.Println("[DEBUG] in getStatusStr")
 	snap := o.Finfo.getSnapshot()
 	snap.HasCapacity = false
-	jbytes, _ := json.Marshal(snap)
+	jbytes, err := json.Marshal(snap)
+	if err != nil {
+		log.Println("[WARNING] could not marshall status: ", err)
+	}
 	return string(jbytes)
 }
