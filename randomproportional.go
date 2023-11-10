@@ -27,10 +27,10 @@ type RandomPropOffloader struct {
 
 func newRandomPropOffloader(base *BaseOffloader) *RandomPropOffloader {
 
-	// NOTE: According to the serverlessonedge implementation, the alpha: 1, randompropAlpha: 1, randomPropBeta: 0
+	// NOTE: According to the serverlessonedge implementation, the alpha: 1, randompropAlpha: 1, randomPropBeta: 1
 	// These numbers can be connfigured and compared if needed.
 
-	randomPropOffloader := &RandomPropOffloader{alpha: 1.0, randompropAlpha: 1.0, randompropBeta: 0.0, base: base}
+	randomPropOffloader := &RandomPropOffloader{alpha: 1.0, randompropAlpha: 0.99, randompropBeta: 0.99, base: base}
 	randomPropOffloader.candidateToIndex = make(map[string]int)
 
 	curTime := time.Now()
@@ -92,7 +92,7 @@ func (o *RandomPropOffloader) getOffloadCandidate(req *http.Request) string {
 		curWeight := math.Pow(1/latency, o.randompropAlpha)/math.Pow((float64(lambdasServed)/timeSinceLastResponse), o.randompropBeta)
 		if (maxWeight < curWeight) {
 			maxIndex = i
-			maxWeight = o.base.RouterList[i].weight
+			maxWeight = curWeight
 		}
 	}
 
