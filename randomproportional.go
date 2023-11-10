@@ -85,6 +85,10 @@ func (o *RandomPropOffloader) getOffloadCandidate(req *http.Request) string {
 			lambdasServed = 1
 		}
 
+		if timeSinceLastResponse == 0.0 {
+			continue
+		}
+
 		curWeight := math.Pow(1/latency, o.randompropAlpha)/math.Pow((float64(lambdasServed)/timeSinceLastResponse), o.randompropBeta)
 		if (maxWeight < curWeight) {
 			maxIndex = i
