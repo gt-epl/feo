@@ -37,6 +37,12 @@ func (o *RoundRobinOffloader) getOffloadCandidate(req *http.Request) string {
 func (o *RoundRobinOffloader) forceEnq(req *http.Request) *list.Element {
 	return o.base.forceEnq(req)
 }
+func (o *RoundRobinOffloader) preProxyMetric(req *http.Request, candidate string) interface{} {
+	return o.preProxyMetric(req, candidate)
+}
+func (o *RoundRobinOffloader) postProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
+	o.postProxyMetric(req, candidate, preProxyMetric)
+}
 func (o *RoundRobinOffloader) Deq(req *http.Request, ctx *list.Element) {
 	o.base.Deq(req, ctx)
 }

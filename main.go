@@ -19,7 +19,7 @@ import (
 type router struct {
 	scheme string
 	host   string
-	weight int
+	weight float64
 	// Microseconds
 	timeElapsed float64
 }
@@ -48,7 +48,7 @@ func PopulateForwardList(routerListString string) []router {
 		var newRouter router
 		newRouter.scheme = routerUrl.Scheme
 		newRouter.host = routerUrl.Host
-		newRouter.weight = 1
+		newRouter.weight = 0.0
 		newRouter.timeElapsed = 0.0
 		routerList = append(routerList, newRouter)
 	}
@@ -115,6 +115,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			log.Println("[INFO] offload to ", candidate)
 			proxyReq := r.createProxyReq(req, candidate, true)
 			var err error
+			preProxyMetric := r.offloader.preProxyMetric(req, candidate)
 			resp, err = client.Do(proxyReq)
 			if err != nil {
 				log.Println("[WARN] offload http request failed: ", err)
@@ -125,6 +126,9 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				err := json.Unmarshal([]byte(jstr), &snap)
 				if err == nil {
 					localExecution = !snap.HasCapacity
+				} else {
+					// This is in the critical path.
+					r.offloader.postProxyMetric(req, candidate, preProxyMetric)
 				}
 			}
 		} else {
@@ -142,12 +146,16 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// self local processing
 		// conditions: localEnq was successful OR offload failed and forced enq
 		var err error
+		preProxyMetric := r.offloader.preProxyMetric(req, r.host)
 		proxyReq := r.createProxyReq(req, r.host, false)
 		resp, err = client.Do(proxyReq)
 		if err != nil {
 			//something bad happened
 			log.Println("local processing returned error", err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
+		} else {
+			// This is in the critical path.
+			r.offloader.postProxyMetric(req, r.host, preProxyMetric)
 		}
 		r.offloader.Deq(req, ctx)
 	}

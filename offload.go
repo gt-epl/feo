@@ -17,6 +17,7 @@ const (
 	OffloadRandom = "random"
 	OffloadFederated  = "federated"
 	OffloadCentrak    = "central"
+	OffloadImpedence = "impedence"
 )
 
 func OffloadFactory(pol OffloadPolicy, routerList []router, host string) OffloaderIntf {
@@ -26,6 +27,8 @@ func OffloadFactory(pol OffloadPolicy, routerList []router, host string) Offload
 		return newRoundRobinOffloader(base)
 	case OffloadRandom:
 		return newRandomOffloader(base)
+	case OffloadImpedence:
+		return newImpedenceOffloader(base)
 	default:
 		return base
 	}
@@ -55,6 +58,8 @@ type Snapshot struct {
 type OffloaderIntf interface {
 	checkAndEnq(req *http.Request) (*list.Element, bool)
 	forceEnq(req *http.Request) *list.Element
+	preProxyMetric(req *http.Request, candidate string) interface{}
+	postProxyMetric(req* http.Request, candidate string, preProxyMetric interface{})
 	Deq(req *http.Request, ctx *list.Element)
 	isOffloaded(req *http.Request) bool
 	getOffloadCandidate(req *http.Request) string
@@ -90,6 +95,14 @@ func (o *BaseOffloader) forceEnq(req *http.Request) *list.Element {
 	o.Finfo.name = strings.Split(req.URL.Path, "/")[5]
 	ctx := o.Finfo.invoke_list.PushBack(time.Now())
 	return ctx
+}
+
+func (o *BaseOffloader) preProxyMetric(req *http.Request, candidate string) interface{} {
+	return nil
+}
+
+func (o *BaseOffloader) postProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
+	return
 }
 
 func (o *BaseOffloader) Deq(req *http.Request, ctx *list.Element) {
