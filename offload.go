@@ -18,6 +18,7 @@ const (
 	OffloadFederated  = "federated"
 	OffloadCentrak    = "central"
 	OffloadImpedence = "impedence"
+	RandomProportional = "randomproportional"
 )
 
 func OffloadFactory(pol OffloadPolicy, routerList []router, host string) OffloaderIntf {
@@ -29,6 +30,8 @@ func OffloadFactory(pol OffloadPolicy, routerList []router, host string) Offload
 		return newRandomOffloader(base)
 	case OffloadImpedence:
 		return newImpedenceOffloader(base)
+	case RandomProportional:
+		return newRandomPropOffloader(base)
 	default:
 		return base
 	}

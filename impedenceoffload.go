@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -12,6 +13,7 @@ type ImpedenceOffloader struct {
 	base    *BaseOffloader //hacky embedding, because you cannot override methods of an embedding
 	alpha	float64
 	candidateToIndex map[string]int
+	mu      sync.Mutex
 }
 
 func newImpedenceOffloader(base *BaseOffloader) *ImpedenceOffloader {
@@ -38,6 +40,9 @@ func (o *ImpedenceOffloader) checkAndEnq(req *http.Request) (*list.Element, bool
 }
 
 func (o *ImpedenceOffloader) getOffloadCandidate(req *http.Request) string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	total_nodes := len(o.base.RouterList)
 
 	minWeight := math.MaxFloat64
@@ -69,6 +74,9 @@ func (o *ImpedenceOffloader) postProxyMetric(req *http.Request, candidate string
 	// Asserting that preProxyMetric holds time.Time value.
 	timeElapsed := time.Since(preProxyMetric.(time.Time))
 	candidateIdx := o.candidateToIndex[candidate]
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
 
 	prevRouterWeight := o.base.RouterList[candidateIdx].weight
 	o.base.RouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
