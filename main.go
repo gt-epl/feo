@@ -77,7 +77,9 @@ func (o *offloadHandler) createProxyReq(originalReq *http.Request, target string
 		RawQuery: originalReq.URL.RawQuery,
 	}
 
-	bodyBytes, err := io.ReadAll(originalReq.Body)
+	//NOTE: why do this? Because you can only read the body once, therefore you read it completely and store it in a buffer and repopulate the req body. source: https://stackoverflow.com/questions/43021058/golang-read-request-body-multiple-times
+
+	bodyBytes, _ := io.ReadAll(originalReq.Body)
 	newBody := io.NopCloser(bytes.NewBuffer(bodyBytes))
 	originalReq.Body.Close() //  must close
 	originalReq.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
@@ -102,16 +104,16 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var resp *http.Response
 	var ctx *list.Element
 	log.Println("Recv req")
-	ctx, localExecution := r.offloader.checkAndEnq(req)
+	ctx, localExecution := r.offloader.CheckAndEnq(req)
 
 	if !localExecution {
-		if r.offloader.isOffloaded(req) {
+		if r.offloader.IsOffloaded(req) {
 			// return Neg Ack from offloadee.
 			w.Header().Set("Content-Type", "application/json")
 
 			//set offloadee header details
 			log.Println("[DEBUG] send Neg ACK")
-			stat := r.offloader.getStatusStr()
+			stat := r.offloader.GetStatusStr()
 			log.Println("[DEBUG] status=", stat)
 			w.Header().Set("Offload-Status", stat)
 			w.WriteHeader(http.StatusOK)
@@ -120,7 +122,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		// Begin OFFLOAD Steps
-		candidate := r.offloader.getOffloadCandidate(req)
+		candidate := r.offloader.GetOffloadCandidate(req)
 		if candidate != r.host {
 			log.Println("[INFO] offload to ", candidate)
 			proxyReq := r.createProxyReq(req, candidate, true)
@@ -144,7 +146,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		if localExecution {
-			ctx = r.offloader.forceEnq(req)
+			ctx = r.offloader.ForceEnq(req)
 		}
 	}
 
@@ -205,4 +207,5 @@ func main() {
 		MaxHeaderBytes: 1 << 20,
 	}
 	log.Fatal(s.ListenAndServe())
+	cur_offloader.Close()
 }
