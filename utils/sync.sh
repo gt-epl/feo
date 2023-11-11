@@ -1,3 +1,3 @@
 cd ~/feo
 go build
-rsync main clabcl0:~/feo/
+rsync feo clabcl0:~/feo/
