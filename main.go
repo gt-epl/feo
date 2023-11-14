@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync/atomic"
 
 	"flag"
 	"net/http"
@@ -29,6 +30,8 @@ type offloadHandler struct {
 	host      string
 	offloader OffloaderIntf
 }
+
+var local, offload atomic.Int32
 
 var client http.Client
 
@@ -167,7 +170,11 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		r.offloader.Deq(req, ctx)
+		local.Add(1)
+	} else {
+		offload.Add(1)
 	}
+	log.Printf("Local,Offload=%d,%d\n", local.Load(), offload.Load())
 	io.Copy(w, resp.Body)
 	if resp.Body != nil {
 		resp.Body.Close()
@@ -181,6 +188,10 @@ func main() {
 	var nodelist = flag.String("nodelist", "routerlist.txt", "file containing line separated nodeip:port for offload candidates")
 	var policystr = flag.String("policy", "", "offload policy")
 	flag.Parse()
+
+	//telemetry
+	local.Store(0)
+	offload.Store(0)
 
 	//backendUrl := url.Parse("http://host:3233/api/v1/namespaces/guest/actions/copy?blocking=true&result=true")
 

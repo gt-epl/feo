@@ -34,8 +34,11 @@ func OffloadFactory(pol OffloadPolicy, routerList []router, host string) Offload
 		log.Println("[INFO] Selecting Federated Offloader")
 		return NewFederatedOffloader(base)
 	case OffloadHybrid:
-		log.Println("[INFO] Selecting Federated Offloader")
+		log.Println("[INFO] Selecting Hybrid Offloader")
 		return NewHybridOffloader(base)
+	case OffloadCentral:
+		log.Println("[INFO] Selecting Central Offloader")
+		return NewCentralizedOffloader(base)
 	default:
 		log.Println("[WARNING] No policy specified. Selecting Base Offloader")
 		return base
