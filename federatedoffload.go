@@ -12,8 +12,8 @@ type FederatedOffloader struct {
 }
 
 func NewFederatedOffloader(base *BaseOffloader) *FederatedOffloader {
-	base.Qlen_max = 2
 	fed := &FederatedOffloader{cur_idx: 0, BaseOffloader: base}
+	fed.Qlen_max = 2
 	log.Println("[DEBUG] qlen_max = ", fed.Qlen_max)
 	return fed
 }
