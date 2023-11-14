@@ -18,6 +18,8 @@ import (
 	"time"
 )
 
+const RETRY_MAX = 1
+
 type router struct {
 	scheme string
 	host   string
@@ -125,8 +127,14 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		// Begin OFFLOAD Steps
-		candidate := r.offloader.GetOffloadCandidate(req)
-		if candidate != r.host {
+		for retry_count := 0; retry_count < RETRY_MAX; retry_count++ {
+			candidate := r.offloader.GetOffloadCandidate(req)
+			if candidate == r.host {
+				localExecution = true
+				break
+			}
+
+			localExecution = false
 			log.Println("[INFO] offload to ", candidate)
 			proxyReq := r.createProxyReq(req, candidate, true)
 			var err error
@@ -139,13 +147,12 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				log.Println("[DEBUG] Successful Offload: ", resp.StatusCode, jstr)
 				snap := Snapshot{}
 				err := json.Unmarshal([]byte(jstr), &snap)
+				//only if offload-status present which is sent on neg-ack
 				if err == nil {
 					localExecution = !snap.HasCapacity
 				}
 				resp.Body.Close()
 			}
-		} else {
-			localExecution = true
 		}
 
 		if localExecution {
