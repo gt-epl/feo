@@ -165,22 +165,3 @@ func NewRoundRobinLatencyOffloader(base *BaseOffloader) *RoundRobinLatencyOffloa
 // 	// 	return o.RouterList[maxIndex].host
 // 	// }
 // }
-
-// func (o *RoundRobinLatencyOffloader) PreProxyMetric(req *http.Request, candidate string) interface{} {
-// 	// return time.Now()
-// }
-
-// func (o *RoundRobinLatencyOffloader) PostProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
-// 	// Asserting that preProxyMetric holds time.Time value.
-// 	// timeElapsed := time.Since(preProxyMetric.(time.Time))
-// 	// candidateIdx := o.candidateToIndex[candidate]
-
-// 	// o.mu.Lock()
-// 	// defer o.mu.Unlock()
-
-// 	// prevRouterWeight := o.RouterList[candidateIdx].weight
-// 	// o.RouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
-
-// 	// o.ExtendRouterList[candidateIdx].lambdasServed += 1
-// 	// o.ExtendRouterList[candidateIdx].lastResponse = time.Now()
-// }

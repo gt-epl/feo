@@ -104,8 +104,6 @@ type Snapshot struct {
 type OffloaderIntf interface {
 	CheckAndEnq(req *http.Request) (*list.Element, bool)
 	ForceEnq(req *http.Request) *list.Element
-	PreProxyMetric(req *http.Request, candidate string) interface{}
-	PostProxyMetric(req* http.Request, candidate string, preProxyMetric interface{})
 	Deq(req *http.Request, ctx *list.Element)
 	IsOffloaded(req *http.Request) bool
 	GetOffloadCandidate(req *http.Request) string
@@ -159,14 +157,6 @@ func (o *BaseOffloader) ForceEnq(req *http.Request) *list.Element {
 	o.Finfo.name = strings.Split(req.URL.Path, "/")[5]
 	ctx := o.Finfo.invoke_list.PushBack(time.Now())
 	return ctx
-}
-
-func (o *BaseOffloader) PreProxyMetric(req *http.Request, candidate string) interface{} {
-	return nil
-}
-
-func (o *BaseOffloader) PostProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
-	return
 }
 
 func (o *BaseOffloader) Deq(req *http.Request, ctx *list.Element) {
