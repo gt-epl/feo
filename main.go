@@ -128,6 +128,10 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 		// Begin OFFLOAD Steps
 		for retry_count := 0; retry_count < RETRY_MAX; retry_count++ {
+
+			// When do we get out of the loop?
+			// Should we break on a successful offload?
+
 			candidate := r.offloader.GetOffloadCandidate(req)
 			if candidate == r.host {
 				localExecution = true
@@ -155,7 +159,11 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 					// This is in the critical path.
 					r.offloader.PostProxyMetric(req, candidate, preProxyMetric)
 				}
-				resp.Body.Close()
+
+
+
+				// BUG: This should be closed only after we copy the response in line 198.
+				// resp.Body.Close()
 			}
 		}
 

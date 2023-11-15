@@ -42,8 +42,10 @@ func OffloadFactory(pol OffloadPolicy, routerList []router, host string) Offload
 		log.Println("[INFO] Selecting Central Offloader")
 		return NewCentralizedOffloader(base)
 	case OffloadImpedence:
+		log.Println("[INFO] Selecting Impedence Offloader")
 		return NewImpedenceOffloader(base)
 	case RandomProportional:
+		log.Println("[INFO] Selecting Radnom Proportional Offloader")
 		return NewRandomPropOffloader(base)
 	default:
 		log.Println("[WARNING] No policy specified. Selecting Base Offloader")
