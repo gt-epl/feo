@@ -122,7 +122,9 @@ type BaseOffloader struct {
 	RouterList     	[]router
 	Qlen_max       	int32
 	ControllerAddr 	string
+
 	MetricSMList	*list.List
+	MetricSMMu		sync.Mutex
 }
 
 func NewBaseOffloader(host string, routerList []router) *BaseOffloader {
@@ -189,6 +191,9 @@ func (o *BaseOffloader) MetricSMInit() *list.Element {
 	metricSM.init = time.Now()
 	metricSM.state = InitState
 	metricSM.candidate = "default"
+
+	o.MetricSMMu.Lock()
+	defer o.MetricSMMu.Unlock()
 	ctx := o.MetricSMList.PushBack(metricSM)
 	return ctx
 }
@@ -257,5 +262,7 @@ func (o *BaseOffloader) MetricSMAnalyze(ctx *list.Element) {
 }
 
 func (o *BaseOffloader) MetricSMDelete(ctx *list.Element) {
+	o.MetricSMMu.Lock()
+	defer o.MetricSMMu.Unlock()
 	o.MetricSMList.Remove(ctx)
 }
