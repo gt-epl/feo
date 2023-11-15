@@ -106,6 +106,8 @@ func (o *offloadHandler) createProxyReq(originalReq *http.Request, target string
 
 func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
+	metricCtx := r.offloader.MetricSMInit()
+
 	var resp *http.Response
 	var ctx *list.Element
 	log.Println("Recv req")
@@ -123,6 +125,9 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Offload-Status", stat)
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, "")
+
+			r.offloader.MetricSMAnalyze(metricCtx)
+			r.offloader.MetricSMDelete(metricCtx)
 			return
 		}
 
@@ -133,6 +138,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			// Should we break on a successful offload?
 
 			candidate := r.offloader.GetOffloadCandidate(req)
+			r.offloader.MetricSMAdvance(metricCtx, MetricSMState("OFFLOADSEARCH"))
 			if candidate == r.host {
 				localExecution = true
 				break
@@ -142,7 +148,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			log.Println("[INFO] offload to ", candidate)
 			proxyReq := r.createProxyReq(req, candidate, true)
 			var err error
-			preProxyMetric := r.offloader.PreProxyMetric(req, candidate)
+			r.offloader.MetricSMAdvance(metricCtx, MetricSMState("PREOFFLOAD"))
 			resp, err = client.Do(proxyReq)
 			if err != nil {
 				log.Println("[WARN] offload http request failed: ", err)
@@ -156,8 +162,8 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				if err == nil {
 					localExecution = !snap.HasCapacity
 				} else {
+					r.offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTOFFLOAD"))
 					// This is in the critical path.
-					r.offloader.PostProxyMetric(req, candidate, preProxyMetric)
 				}
 
 
@@ -178,8 +184,8 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// self local processing
 		// conditions: localEnq was successful OR offload failed and forced enq
 		var err error
-		preProxyMetric := r.offloader.PreProxyMetric(req, r.host)
 		proxyReq := r.createProxyReq(req, r.host, false)
+		r.offloader.MetricSMAdvance(metricCtx, MetricSMState("PRELOCAL"))
 		resp, err = client.Do(proxyReq)
 		if err != nil {
 			//something bad happened
@@ -189,7 +195,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			log.Println("Bad http response", resp.StatusCode)
 		} else {
 			// This is in the critical path.
-			r.offloader.PostProxyMetric(req, r.host, preProxyMetric)
+			r.offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTLOCAL"))
 		}
 
 		r.offloader.Deq(req, ctx)
@@ -198,12 +204,19 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		offload.Add(1)
 	}
 	log.Printf("Local,Offload=%d,%d\n", local.Load(), offload.Load())
+
 	io.Copy(w, resp.Body)
 	if resp.Body != nil {
 		resp.Body.Close()
 	} else {
 		log.Println("Response is empty!")
 	}
+
+	r.offloader.MetricSMAdvance(metricCtx, MetricSMState("FINAL"))
+
+	r.offloader.MetricSMAnalyze(metricCtx)
+	r.offloader.MetricSMDelete(metricCtx)
+	return
 }
 
 func main() {
