@@ -33,22 +33,3 @@ func (o *RoundRobinOffloader) GetOffloadCandidate(req *http.Request) string {
 	o.cur_idx = (o.cur_idx + 1) % total_nodes
 	return candidate
 }
-
-func (o *RoundRobinOffloader) forceEnq(req *http.Request) *list.Element {
-	return o.base.forceEnq(req)
-}
-func (o *RoundRobinOffloader) preProxyMetric(req *http.Request, candidate string) interface{} {
-	return o.preProxyMetric(req, candidate)
-}
-func (o *RoundRobinOffloader) postProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
-	o.postProxyMetric(req, candidate, preProxyMetric)
-}
-func (o *RoundRobinOffloader) Deq(req *http.Request, ctx *list.Element) {
-	o.base.Deq(req, ctx)
-}
-func (o *RoundRobinOffloader) isOffloaded(req *http.Request) bool {
-	return o.base.isOffloaded(req)
-}
-func (o *RoundRobinOffloader) getStatusStr() string {
-	return o.base.getStatusStr()
-}

@@ -138,7 +138,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			log.Println("[INFO] offload to ", candidate)
 			proxyReq := r.createProxyReq(req, candidate, true)
 			var err error
-			preProxyMetric := r.offloader.preProxyMetric(req, candidate)
+			preProxyMetric := r.offloader.PreProxyMetric(req, candidate)
 			resp, err = client.Do(proxyReq)
 			if err != nil {
 				log.Println("[WARN] offload http request failed: ", err)
@@ -153,7 +153,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 					localExecution = !snap.HasCapacity
 				} else {
 					// This is in the critical path.
-					r.offloader.postProxyMetric(req, candidate, preProxyMetric)
+					r.offloader.PostProxyMetric(req, candidate, preProxyMetric)
 				}
 				resp.Body.Close()
 			}
@@ -170,7 +170,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// self local processing
 		// conditions: localEnq was successful OR offload failed and forced enq
 		var err error
-		preProxyMetric := r.offloader.preProxyMetric(req, r.host)
+		preProxyMetric := r.offloader.PreProxyMetric(req, r.host)
 		proxyReq := r.createProxyReq(req, r.host, false)
 		resp, err = client.Do(proxyReq)
 		if err != nil {
@@ -181,7 +181,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			log.Println("Bad http response", resp.StatusCode)
 		} else {
 			// This is in the critical path.
-			r.offloader.postProxyMetric(req, r.host, preProxyMetric)
+			r.offloader.PostProxyMetric(req, r.host, preProxyMetric)
 		}
 
 		r.offloader.Deq(req, ctx)

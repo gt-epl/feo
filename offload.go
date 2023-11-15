@@ -42,9 +42,9 @@ func OffloadFactory(pol OffloadPolicy, routerList []router, host string) Offload
 		log.Println("[INFO] Selecting Central Offloader")
 		return NewCentralizedOffloader(base)
 	case OffloadImpedence:
-		return newImpedenceOffloader(base)
+		return NewImpedenceOffloader(base)
 	case RandomProportional:
-		return newRandomPropOffloader(base)
+		return NewRandomPropOffloader(base)
 	default:
 		log.Println("[WARNING] No policy specified. Selecting Base Offloader")
 		return base
@@ -75,8 +75,8 @@ type Snapshot struct {
 type OffloaderIntf interface {
 	CheckAndEnq(req *http.Request) (*list.Element, bool)
 	ForceEnq(req *http.Request) *list.Element
-	preProxyMetric(req *http.Request, candidate string) interface{}
-	postProxyMetric(req* http.Request, candidate string, preProxyMetric interface{})
+	PreProxyMetric(req *http.Request, candidate string) interface{}
+	PostProxyMetric(req* http.Request, candidate string, preProxyMetric interface{})
 	Deq(req *http.Request, ctx *list.Element)
 	IsOffloaded(req *http.Request) bool
 	GetOffloadCandidate(req *http.Request) string
@@ -126,11 +126,11 @@ func (o *BaseOffloader) ForceEnq(req *http.Request) *list.Element {
 	return ctx
 }
 
-func (o *BaseOffloader) preProxyMetric(req *http.Request, candidate string) interface{} {
+func (o *BaseOffloader) PreProxyMetric(req *http.Request, candidate string) interface{} {
 	return nil
 }
 
-func (o *BaseOffloader) postProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
+func (o *BaseOffloader) PostProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
 	return
 }
 

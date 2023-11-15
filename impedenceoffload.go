@@ -10,14 +10,14 @@ import (
 )
 
 type ImpedenceOffloader struct {
-	base    *BaseOffloader //hacky embedding, because you cannot override methods of an embedding
+	*BaseOffloader //hacky embedding, because you cannot override methods of an embedding
 	alpha	float64
 	candidateToIndex map[string]int
 	mu      sync.Mutex
 }
 
-func newImpedenceOffloader(base *BaseOffloader) *ImpedenceOffloader {
-	impedenceOffloader := &ImpedenceOffloader{alpha: 0.2, base: base}
+func NewImpedenceOffloader(base *BaseOffloader) *ImpedenceOffloader {
+	impedenceOffloader := &ImpedenceOffloader{alpha: 0.2, BaseOffloader: base}
 	impedenceOffloader.candidateToIndex = make(map[string]int)
 
 	for idx,router := range base.RouterList {
@@ -27,50 +27,46 @@ func newImpedenceOffloader(base *BaseOffloader) *ImpedenceOffloader {
 	return impedenceOffloader
 }
 
-func (o *ImpedenceOffloader) checkAndEnq(req *http.Request) (*list.Element, bool) {
+func (o *ImpedenceOffloader) CheckAndEnq(req *http.Request) (*list.Element, bool) {
 	//NOTE: in round robin checkAndEnq returns true AND does a forceenq IF it is an offloaded request.
 	var ctx *list.Element
 	enq_success := false
-	if o.base.isOffloaded(req) {
+	if o.IsOffloaded(req) {
 		log.Println("[INFO] Already offloaded. Force Enq")
-		ctx = o.base.forceEnq(req)
+		ctx = o.ForceEnq(req)
 		enq_success = true
 	}
 	return ctx, enq_success
 }
 
-func (o *ImpedenceOffloader) getOffloadCandidate(req *http.Request) string {
+func (o *ImpedenceOffloader) GetOffloadCandidate(req *http.Request) string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	total_nodes := len(o.base.RouterList)
+	total_nodes := len(o.RouterList)
 
 	minWeight := math.MaxFloat64
 	minIndex := -1
 
 	for i:=0; i<total_nodes; i++ {
-		if (minWeight > o.base.RouterList[i].weight) {
+		if (minWeight > o.RouterList[i].weight) {
 			minIndex = i
-			minWeight = o.base.RouterList[i].weight
+			minWeight = o.RouterList[i].weight
 		}
 	}
 
 	if (minIndex == -1) {
-		return o.base.Host
+		return o.Host
 	} else {
-		return o.base.RouterList[minIndex].host
+		return o.RouterList[minIndex].host
 	}
 }
 
-func (o *ImpedenceOffloader) forceEnq(req *http.Request) *list.Element {
-	return o.base.forceEnq(req)
-}
-
-func (o *ImpedenceOffloader) preProxyMetric(req *http.Request, candidate string) interface{} {
+func (o *ImpedenceOffloader) PreProxyMetric(req *http.Request, candidate string) interface{} {
 	return time.Now()
 }
 
-func (o *ImpedenceOffloader) postProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
+func (o *ImpedenceOffloader) PostProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
 	// Asserting that preProxyMetric holds time.Time value.
 	timeElapsed := time.Since(preProxyMetric.(time.Time))
 	candidateIdx := o.candidateToIndex[candidate]
@@ -78,16 +74,6 @@ func (o *ImpedenceOffloader) postProxyMetric(req *http.Request, candidate string
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	prevRouterWeight := o.base.RouterList[candidateIdx].weight
-	o.base.RouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
-}
-
-func (o *ImpedenceOffloader) Deq(req *http.Request, ctx *list.Element) {
-	o.base.Deq(req, ctx)
-}
-func (o *ImpedenceOffloader) isOffloaded(req *http.Request) bool {
-	return o.base.isOffloaded(req)
-}
-func (o *ImpedenceOffloader) getStatusStr() string {
-	return o.base.getStatusStr()
+	prevRouterWeight := o.RouterList[candidateIdx].weight
+	o.RouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
 }

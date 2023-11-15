@@ -16,7 +16,7 @@ type extendRouter struct {
 }
 
 type RandomPropOffloader struct {
-	base    			*BaseOffloader //hacky embedding, because you cannot override methods of an embedding
+	*BaseOffloader //hacky embedding, because you cannot override methods of an embedding
 	alpha				float64
 	randompropAlpha		float64
 	randompropBeta		float64
@@ -25,12 +25,12 @@ type RandomPropOffloader struct {
 	ExtendRouterList	[]extendRouter	
 }
 
-func newRandomPropOffloader(base *BaseOffloader) *RandomPropOffloader {
+func NewRandomPropOffloader(base *BaseOffloader) *RandomPropOffloader {
 
 	// NOTE: According to the serverlessonedge implementation, the alpha: 1, randompropAlpha: 1, randomPropBeta: 1
 	// These numbers can be connfigured and compared if needed.
 
-	randomPropOffloader := &RandomPropOffloader{alpha: 1.0, randompropAlpha: 0.99, randompropBeta: 0.99, base: base}
+	randomPropOffloader := &RandomPropOffloader{alpha: 1.0, randompropAlpha: 0.99, randompropBeta: 0.99, BaseOffloader: base}
 	randomPropOffloader.candidateToIndex = make(map[string]int)
 
 	curTime := time.Now()
@@ -49,23 +49,23 @@ func newRandomPropOffloader(base *BaseOffloader) *RandomPropOffloader {
 	return randomPropOffloader
 }
 
-func (o *RandomPropOffloader) checkAndEnq(req *http.Request) (*list.Element, bool) {
+func (o *RandomPropOffloader) CheckAndEnq(req *http.Request) (*list.Element, bool) {
 	//NOTE: in round robin checkAndEnq returns true AND does a forceenq IF it is an offloaded request.
 	var ctx *list.Element
 	enq_success := false
-	if o.base.isOffloaded(req) {
+	if o.IsOffloaded(req) {
 		log.Println("[INFO] Already offloaded. Force Enq")
-		ctx = o.base.forceEnq(req)
+		ctx = o.ForceEnq(req)
 		enq_success = true
 	}
 	return ctx, enq_success
 }
 
-func (o *RandomPropOffloader) getOffloadCandidate(req *http.Request) string {
+func (o *RandomPropOffloader) GetOffloadCandidate(req *http.Request) string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	total_nodes := len(o.base.RouterList)
+	total_nodes := len(o.RouterList)
 
 	maxWeight := -1.0
 	maxIndex := -1
@@ -73,7 +73,7 @@ func (o *RandomPropOffloader) getOffloadCandidate(req *http.Request) string {
 	curTime := time.Now()
 
 	for i:=0; i<total_nodes; i++ {
-		latency := o.base.RouterList[i].weight
+		latency := o.RouterList[i].weight
 		lambdasServed := o.ExtendRouterList[i].lambdasServed
 		timeSinceLastResponse := float64(curTime.Sub(o.ExtendRouterList[i].lastResponse).Microseconds())/1000
 
@@ -97,21 +97,17 @@ func (o *RandomPropOffloader) getOffloadCandidate(req *http.Request) string {
 	}
 
 	if (maxIndex == -1) {
-		return o.base.Host
+		return o.Host
 	} else {
-		return o.base.RouterList[maxIndex].host
+		return o.RouterList[maxIndex].host
 	}
 }
 
-func (o *RandomPropOffloader) forceEnq(req *http.Request) *list.Element {
-	return o.base.forceEnq(req)
-}
-
-func (o *RandomPropOffloader) preProxyMetric(req *http.Request, candidate string) interface{} {
+func (o *RandomPropOffloader) PreProxyMetric(req *http.Request, candidate string) interface{} {
 	return time.Now()
 }
 
-func (o *RandomPropOffloader) postProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
+func (o *RandomPropOffloader) PostProxyMetric(req *http.Request, candidate string, preProxyMetric interface{}) {
 	// Asserting that preProxyMetric holds time.Time value.
 	timeElapsed := time.Since(preProxyMetric.(time.Time))
 	candidateIdx := o.candidateToIndex[candidate]
@@ -119,19 +115,9 @@ func (o *RandomPropOffloader) postProxyMetric(req *http.Request, candidate strin
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	prevRouterWeight := o.base.RouterList[candidateIdx].weight
-	o.base.RouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
+	prevRouterWeight := o.RouterList[candidateIdx].weight
+	o.RouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
 
 	o.ExtendRouterList[candidateIdx].lambdasServed += 1
 	o.ExtendRouterList[candidateIdx].lastResponse = time.Now()
-}
-
-func (o *RandomPropOffloader) Deq(req *http.Request, ctx *list.Element) {
-	o.base.Deq(req, ctx)
-}
-func (o *RandomPropOffloader) isOffloaded(req *http.Request) bool {
-	return o.base.isOffloaded(req)
-}
-func (o *RandomPropOffloader) getStatusStr() string {
-	return o.base.getStatusStr()
 }
