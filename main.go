@@ -2,11 +2,13 @@
 package main
 
 import (
+	"bytes"
 	"container/list"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"sync/atomic"
 
 	"flag"
 	"net/http"
@@ -15,6 +17,8 @@ import (
 	"strings"
 	"time"
 )
+
+const RETRY_MAX = 1
 
 type router struct {
 	scheme string
@@ -28,6 +32,8 @@ type offloadHandler struct {
 	host      string
 	offloader OffloaderIntf
 }
+
+var local, offload atomic.Int32
 
 var client http.Client
 
@@ -76,7 +82,14 @@ func (o *offloadHandler) createProxyReq(originalReq *http.Request, target string
 		RawQuery: originalReq.URL.RawQuery,
 	}
 
-	upstreamReq, err := http.NewRequest(originalReq.Method, url.String(), originalReq.Body)
+	//NOTE: why do this? Because you can only read the body once, therefore you read it completely and store it in a buffer and repopulate the req body. source: https://stackoverflow.com/questions/43021058/golang-read-request-body-multiple-times
+
+	bodyBytes, _ := io.ReadAll(originalReq.Body)
+	newBody := io.NopCloser(bytes.NewBuffer(bodyBytes))
+	originalReq.Body.Close() //  must close
+	originalReq.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	upstreamReq, err := http.NewRequest(originalReq.Method, url.String(), newBody)
 	upstreamReq.Header = originalReq.Header
 
 	if isOffload {
@@ -96,22 +109,32 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var resp *http.Response
 	var ctx *list.Element
 	log.Println("Recv req")
-	ctx, localExecution := r.offloader.checkAndEnq(req)
+	ctx, localExecution := r.offloader.CheckAndEnq(req)
 
 	if !localExecution {
-		if r.offloader.isOffloaded(req) {
+		if r.offloader.IsOffloaded(req) {
 			// return Neg Ack from offloadee.
 			w.Header().Set("Content-Type", "application/json")
 
 			//set offloadee header details
-			w.Header().Set("Offload-Status", r.offloader.getStatusStr())
+			log.Println("[DEBUG] send Neg ACK")
+			stat := r.offloader.GetStatusStr()
+			log.Println("[DEBUG] status=", stat)
+			w.Header().Set("Offload-Status", stat)
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, "")
+			return
 		}
 
 		// Begin OFFLOAD Steps
-		candidate := r.offloader.getOffloadCandidate(req)
-		if candidate != r.host {
+		for retry_count := 0; retry_count < RETRY_MAX; retry_count++ {
+			candidate := r.offloader.GetOffloadCandidate(req)
+			if candidate == r.host {
+				localExecution = true
+				break
+			}
+
+			localExecution = false
 			log.Println("[INFO] offload to ", candidate)
 			proxyReq := r.createProxyReq(req, candidate, true)
 			var err error
@@ -122,21 +145,22 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				localExecution = true
 			} else {
 				jstr := resp.Header.Get("Offload-Status")
+				log.Println("[DEBUG] Successful Offload: ", resp.StatusCode, jstr)
 				snap := Snapshot{}
 				err := json.Unmarshal([]byte(jstr), &snap)
+				//only if offload-status present which is sent on neg-ack
 				if err == nil {
 					localExecution = !snap.HasCapacity
 				} else {
 					// This is in the critical path.
 					r.offloader.postProxyMetric(req, candidate, preProxyMetric)
 				}
+				resp.Body.Close()
 			}
-		} else {
-			localExecution = true
 		}
 
 		if localExecution {
-			ctx = r.offloader.forceEnq(req)
+			ctx = r.offloader.ForceEnq(req)
 		}
 	}
 
@@ -153,12 +177,19 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			//something bad happened
 			log.Println("local processing returned error", err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
+		} else if resp.StatusCode != http.StatusOK {
+			log.Println("Bad http response", resp.StatusCode)
 		} else {
 			// This is in the critical path.
 			r.offloader.postProxyMetric(req, r.host, preProxyMetric)
 		}
+
 		r.offloader.Deq(req, ctx)
+		local.Add(1)
+	} else {
+		offload.Add(1)
 	}
+	log.Printf("Local,Offload=%d,%d\n", local.Load(), offload.Load())
 	io.Copy(w, resp.Body)
 	if resp.Body != nil {
 		resp.Body.Close()
@@ -170,6 +201,12 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func main() {
 	// client := &http.Client{}
 	var nodelist = flag.String("nodelist", "routerlist.txt", "file containing line separated nodeip:port for offload candidates")
+	var policystr = flag.String("policy", "", "offload policy")
+	flag.Parse()
+
+	//telemetry
+	local.Store(0)
+	offload.Store(0)
 
 	//backendUrl := url.Parse("http://host:3233/api/v1/namespaces/guest/actions/copy?blocking=true&result=true")
 
@@ -185,7 +222,7 @@ func main() {
 	}
 
 	//TODO: use gflags instead of os.Args
-	policy := OffloadPolicy("roundrobin")
+	policy := OffloadPolicy(*policystr)
 	cur_offloader := OffloadFactory(policy, routerList, routerList[0].host)
 
 	s := &http.Server{
@@ -196,4 +233,5 @@ func main() {
 		MaxHeaderBytes: 1 << 20,
 	}
 	log.Fatal(s.ListenAndServe())
+	cur_offloader.Close()
 }
