@@ -30,7 +30,7 @@ func (o *RandomOffloader) CheckAndEnq(req *http.Request) (*list.Element, bool) {
 	return ctx, enq_success
 }
 
-func (o *RandomOffloader) getOffloadCandidate(req *http.Request) string {
+func (o *RandomOffloader) GetOffloadCandidate(req *http.Request) string {
 	total_nodes := len(o.RouterList)
 	o.cur_idx = rand.Intn(100) % total_nodes
 	candidate := o.RouterList[o.cur_idx].host

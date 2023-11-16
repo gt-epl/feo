@@ -24,6 +24,7 @@ const (
 	OffloadFederated  = "federated"
 	OffloadCentral    = "central"
 	OffloadHybrid     = "hybrid"
+	OffloadEpoch      = "epoch"
 )
 
 func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {
@@ -44,6 +45,9 @@ func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {
 	case OffloadCentral:
 		log.Println("[INFO] Selecting Central Offloader")
 		return NewCentralizedOffloader(base)
+	case OffloadEpoch:
+		log.Println("[INFO] Selecting Epoch Offloader")
+		return NewEpochOffloader(base)
 	default:
 		log.Println("[WARNING] No policy specified. Selecting Base Offloader")
 		return base

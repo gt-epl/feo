@@ -24,6 +24,7 @@ const _ = grpc.SupportPackageIsVersion7
 type OffloadStateHubClient interface {
 	UpdateState(ctx context.Context, in *NodeState, opts ...grpc.CallOption) (*UpdateStateResponse, error)
 	GetCandidate(ctx context.Context, in *CandidateQuery, opts ...grpc.CallOption) (*CandidateResponse, error)
+	GetState(ctx context.Context, in *StateQuery, opts ...grpc.CallOption) (*StateResponse, error)
 }
 
 type offloadStateHubClient struct {
@@ -52,12 +53,22 @@ func (c *offloadStateHubClient) GetCandidate(ctx context.Context, in *CandidateQ
 	return out, nil
 }
 
+func (c *offloadStateHubClient) GetState(ctx context.Context, in *StateQuery, opts ...grpc.CallOption) (*StateResponse, error) {
+	out := new(StateResponse)
+	err := c.cc.Invoke(ctx, "/offload.OffloadStateHub/GetState", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OffloadStateHubServer is the server API for OffloadStateHub service.
 // All implementations must embed UnimplementedOffloadStateHubServer
 // for forward compatibility
 type OffloadStateHubServer interface {
 	UpdateState(context.Context, *NodeState) (*UpdateStateResponse, error)
 	GetCandidate(context.Context, *CandidateQuery) (*CandidateResponse, error)
+	GetState(context.Context, *StateQuery) (*StateResponse, error)
 	mustEmbedUnimplementedOffloadStateHubServer()
 }
 
@@ -70,6 +81,9 @@ func (UnimplementedOffloadStateHubServer) UpdateState(context.Context, *NodeStat
 }
 func (UnimplementedOffloadStateHubServer) GetCandidate(context.Context, *CandidateQuery) (*CandidateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCandidate not implemented")
+}
+func (UnimplementedOffloadStateHubServer) GetState(context.Context, *StateQuery) (*StateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetState not implemented")
 }
 func (UnimplementedOffloadStateHubServer) mustEmbedUnimplementedOffloadStateHubServer() {}
 
@@ -120,6 +134,24 @@ func _OffloadStateHub_GetCandidate_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OffloadStateHub_GetState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StateQuery)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OffloadStateHubServer).GetState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/offload.OffloadStateHub/GetState",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OffloadStateHubServer).GetState(ctx, req.(*StateQuery))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OffloadStateHub_ServiceDesc is the grpc.ServiceDesc for OffloadStateHub service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -134,6 +166,10 @@ var OffloadStateHub_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCandidate",
 			Handler:    _OffloadStateHub_GetCandidate_Handler,
+		},
+		{
+			MethodName: "GetState",
+			Handler:    _OffloadStateHub_GetState_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
