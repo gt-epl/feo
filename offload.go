@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+type router struct {
+	scheme string
+	host   string
+}
+
 type OffloadPolicy string
 
 const (
@@ -21,8 +26,8 @@ const (
 	OffloadHybrid     = "hybrid"
 )
 
-func OffloadFactory(pol OffloadPolicy, routerList []router, host string) OffloaderIntf {
-	base := NewBaseOffloader(host, routerList)
+func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {
+	base := NewBaseOffloader(config)
 	switch pol {
 	case OffloadRoundRobin:
 		log.Println("[INFO] Selecting RoundRobin Offloader")
@@ -85,8 +90,12 @@ type BaseOffloader struct {
 	ControllerAddr string
 }
 
-func NewBaseOffloader(host string, routerList []router) *BaseOffloader {
-	o := BaseOffloader{Host: host, RouterList: routerList, Qlen_max: math.MaxInt32}
+func NewBaseOffloader(config FeoConfig) *BaseOffloader {
+	routerList := []router{}
+	for _, ip := range config.Peers {
+		routerList = append(routerList, router{host: ip})
+	}
+	o := BaseOffloader{Host: config.Host, RouterList: routerList, Qlen_max: math.MaxInt32}
 	o.Finfo.invoke_list = list.New()
 	return &o
 }

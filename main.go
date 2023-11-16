@@ -16,17 +16,11 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 const RETRY_MAX = 1
-
-type router struct {
-	scheme string
-	host   string
-	weight int
-	// Microseconds
-	timeElapsed float64
-}
 
 type offloadHandler struct {
 	host      string
@@ -36,30 +30,6 @@ type offloadHandler struct {
 var local, offload atomic.Int32
 
 var client http.Client
-
-// TODO: use a yaml/json encoder to convert this.
-func PopulateForwardList(routerListString string) []router {
-
-	var routerList []router
-	routerStringList := strings.Split(routerListString, "\n")
-	for _, routerString := range routerStringList {
-		if routerString == "" {
-			continue
-		}
-		routerUrl, err := url.Parse(routerString)
-		if err != nil {
-			log.Fatal("PopulateForwardList: Error parsing router list")
-		}
-
-		var newRouter router
-		newRouter.scheme = routerUrl.Scheme
-		newRouter.host = routerUrl.Host
-		newRouter.weight = 1
-		newRouter.timeElapsed = 0.0
-		routerList = append(routerList, newRouter)
-	}
-	return routerList
-}
 
 func (o *offloadHandler) createProxyReq(originalReq *http.Request, target string, isOffload bool) *http.Request {
 	ODMN_PORT := "9696"
@@ -192,9 +162,17 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func main() {
 	// client := &http.Client{}
-	var nodelist = flag.String("nodelist", "routerlist.txt", "file containing line separated nodeip:port for offload candidates")
-	var policystr = flag.String("policy", "", "offload policy")
+	var configstr = flag.String("config", "config.yml", "YML config for faas orchestrator")
 	flag.Parse()
+
+	f, err := os.ReadFile(*configstr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var config FeoConfig
+	if err := yaml.Unmarshal(f, &config); err != nil {
+		log.Fatal(err)
+	}
 
 	//telemetry
 	local.Store(0)
@@ -202,24 +180,17 @@ func main() {
 
 	//backendUrl := url.Parse("http://host:3233/api/v1/namespaces/guest/actions/copy?blocking=true&result=true")
 
-	routerListString, err := os.ReadFile(*nodelist)
-	if err != nil {
-		log.Fatal("Error in reading router list file.")
-	}
-
-	// NOTE: We need os.Args[1] to be the value that we are going to use in the router list file!!
-	routerList := PopulateForwardList(string(routerListString))
-	for _, ele := range routerList {
-		log.Println(ele.host)
+	for _, ele := range config.Peers {
+		log.Println(ele)
 	}
 
 	//TODO: use gflags instead of os.Args
-	policy := OffloadPolicy(*policystr)
-	cur_offloader := OffloadFactory(policy, routerList, routerList[0].host)
+	policy := OffloadPolicy(config.Policy.Name)
+	cur_offloader := OffloadFactory(policy, config)
 
 	s := &http.Server{
-		Addr:           routerList[0].host,
-		Handler:        &offloadHandler{offloader: cur_offloader, host: routerList[0].host},
+		Addr:           config.Host,
+		Handler:        &offloadHandler{offloader: cur_offloader, host: config.Host},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
