@@ -5,8 +5,16 @@ package offload;
 service OffloadStateHub {
     rpc UpdateState(NodeState) returns(UpdateStateResponse) {}
     rpc GetCandidate(CandidateQuery) returns(CandidateResponse){}
+    rpc GetState(StateQuery) returns(StateResponse) {}
 }
 
+message StateQuery {
+    string node_name = 1;
+}
+
+message StateResponse {
+    repeated NodeState nodes = 1;
+}
 message CandidateQuery {
     string node_name = 1;
     string function_name = 2;
