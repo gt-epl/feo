@@ -161,12 +161,12 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				//only if offload-status present which is sent on neg-ack
 				if err == nil {
 					localExecution = !snap.HasCapacity
+				} else if resp.StatusCode != http.StatusOK {
+					log.Println("Bad http response", resp.StatusCode)
 				} else {
 					r.offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTOFFLOAD"))
 					// This is in the critical path.
 				}
-
-
 
 				// BUG: This should be closed only after we copy the response in line 198.
 				// resp.Body.Close()
