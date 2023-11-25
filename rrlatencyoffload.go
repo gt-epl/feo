@@ -227,6 +227,7 @@ func (o *RRLatencyOffloader) MetricSMAnalyze(ctx *list.Element) {
 				candidateItem.ce.deficit = float64(timeElapsed.Microseconds()/1000)
 				candidateItem.ce.weight = float64(timeElapsed.Microseconds()/1000)
 				candidateItem.ce.ResetStalePeriod(o.initStalePeriod)
+				candidateItem.ce.active = true
 
 				heap.Push(&o.pq, candidateItem)
 			} else {
