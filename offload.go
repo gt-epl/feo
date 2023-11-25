@@ -14,14 +14,14 @@ import (
 type OffloadPolicy string
 
 const (
-	OffloadRoundRobin = "roundrobin"
-	OffloadRandom     = "random"
-	OffloadFederated  = "federated"
-	OffloadCentral    = "central"
-	OffloadHybrid     = "hybrid"
-	OffloadImpedence = "impedence"
-	RandomProportional = "randomproportional"
-	RoundRobinLatency = "roundrobinlatency"
+	OffloadRoundRobin 	= "roundrobin"
+	OffloadRandom     	= "random"
+	OffloadFederated  	= "federated"
+	OffloadCentral    	= "central"
+	OffloadHybrid     	= "hybrid"
+	OffloadImpedence 	= "impedence"
+	RandomProportional 	= "randomproportional"
+	RRLatency 			= "roundrobinlatency"
 )
 
 type MetricSMState string
@@ -60,9 +60,9 @@ func OffloadFactory(pol OffloadPolicy, routerList []router, host string) Offload
 	case RandomProportional:
 		log.Println("[INFO] Selecting Radnom Proportional Offloader")
 		return NewRandomPropOffloader(base)
-	case RoundRobinLatency:
+	case RRLatency:
 		log.Println("[INFO] Selecting Round Robin Latency Offloader")
-		return NewRoundRobinLatencyOffloader(base)
+		return NewRRLatencyOffloader(base)
 	default:
 		log.Println("[WARNING] No policy specified. Selecting Base Offloader")
 		return base
