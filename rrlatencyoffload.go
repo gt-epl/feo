@@ -194,10 +194,15 @@ func (o *RRLatencyOffloader) MetricSMAnalyze(ctx *list.Element) {
 			timeElapsed = ctx.Value.(*MetricSM).postOffload.Sub(ctx.Value.(*MetricSM).preOffload)
 		}
 
-		o.mu.Lock()
-		defer o.mu.Unlock()
+		if (ctx.Value.(*MetricSM).localAfterFail || ctx.Value.(*MetricSM).localByDefault) {
+			log.Println("[DEBUG] Local candidate not chosen by GetOffloadCandidate, no further analysis.")
+			return
+		}
 
 		candidateItem := o.candidateToItem[ctx.Value.(*MetricSM).candidate]
+
+		o.mu.Lock()
+		defer o.mu.Unlock()
 
 		// o.ExtendRouterList[candidateIdx].lambdasServed += 1
 		// o.ExtendRouterList[candidateIdx].lastResponse = time.Now()

@@ -82,6 +82,8 @@ type MetricSM struct {
 
 	candidate		string
 	local			bool
+	localByDefault	bool
+	localAfterFail	bool
 }
 
 type FunctionInfo struct {
@@ -195,6 +197,9 @@ func (o *BaseOffloader) MetricSMInit() *list.Element {
 	metricSM.init = time.Now()
 	metricSM.state = InitState
 	metricSM.candidate = "default"
+	metricSM.local = false
+	metricSM.localAfterFail = false
+	metricSM.localByDefault = false
 
 	o.MetricSMMu.Lock()
 	defer o.MetricSMMu.Unlock()
@@ -214,51 +219,64 @@ func (o *BaseOffloader) MetricSMAdvance(ctx *list.Element, state MetricSMState, 
 	switch(state) {
 	case InitState:
 		ctx.Value.(*MetricSM).state = state
+		ctx.Value.(*MetricSM).init = time.Now()
 	case OffloadSearchState:
 		if (ctx.Value.(*MetricSM).state == InitState) {
 			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).offloadSearch = time.Now()
 		}
 	case PreLocalState:
 		if ((ctx.Value.(*MetricSM).state == InitState) || (ctx.Value.(*MetricSM).state == OffloadSearchState) || (ctx.Value.(*MetricSM).state == PreOffloadState)) {
+			if ((ctx.Value.(*MetricSM).state == InitState)) {
+				ctx.Value.(*MetricSM).localByDefault = true
+			}
+			if ((ctx.Value.(*MetricSM).state == PreOffloadState)) {
+				ctx.Value.(*MetricSM).localAfterFail = true
+			}
 			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).preLocal = time.Now()
 		}
 	case PostLocalState:
 		if (ctx.Value.(*MetricSM).state == PreLocalState) {
 			ctx.Value.(*MetricSM).state = state
 			ctx.Value.(*MetricSM).local = true
+			ctx.Value.(*MetricSM).postLocal = time.Now()
 		}
 	case PreOffloadState:
 		if (ctx.Value.(*MetricSM).state == OffloadSearchState) {
 			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).preOffload = time.Now()
 		}
 	case PostOffloadState:
 		if (ctx.Value.(*MetricSM).state == PreOffloadState) {
 			ctx.Value.(*MetricSM).state = state
 			ctx.Value.(*MetricSM).local = false
+			ctx.Value.(*MetricSM).postOffload = time.Now()
 		}
 	case FinalState:
 		if ((ctx.Value.(*MetricSM).state == PostOffloadState) || (ctx.Value.(*MetricSM).state == PostLocalState)) {
 			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).final = time.Now()
 		}
 	}
 
-
-	switch(ctx.Value.(*MetricSM).state){
-	case InitState:
-		ctx.Value.(*MetricSM).init = time.Now()
-	case PreLocalState:
-		ctx.Value.(*MetricSM).preLocal = time.Now()
-	case OffloadSearchState:
-		ctx.Value.(*MetricSM).offloadSearch = time.Now()
-	case PreOffloadState:
-		ctx.Value.(*MetricSM).preOffload = time.Now()
-	case PostOffloadState:
-		ctx.Value.(*MetricSM).postOffload = time.Now()
-	case PostLocalState:
-		ctx.Value.(*MetricSM).postLocal = time.Now()
-	case FinalState:
-		ctx.Value.(*MetricSM).final = time.Now()
-	}
+	// Better
+	// switch(ctx.Value.(*MetricSM).state){
+	// case InitState:
+	// 	ctx.Value.(*MetricSM).init = time.Now()
+	// case PreLocalState:
+	// 	ctx.Value.(*MetricSM).preLocal = time.Now()
+	// case OffloadSearchState:
+	// 	ctx.Value.(*MetricSM).offloadSearch = time.Now()
+	// case PreOffloadState:
+	// 	ctx.Value.(*MetricSM).preOffload = time.Now()
+	// case PostOffloadState:
+	// 	ctx.Value.(*MetricSM).postOffload = time.Now()
+	// case PostLocalState:
+	// 	ctx.Value.(*MetricSM).postLocal = time.Now()
+	// case FinalState:
+	// 	ctx.Value.(*MetricSM).final = time.Now()
+	// }
 }
 
 func (o *BaseOffloader) MetricSMAnalyze(ctx *list.Element) {
