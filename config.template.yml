@@ -2,7 +2,7 @@ controller: "192.168.10.14:50051"
 host: "HOSTIP:9696"
 scheme: "http"
 policy: 
-  name: "roundrobin"
+  name: "POLICY"
   config: ""
 peers:
   - "192.168.10.10:9696"

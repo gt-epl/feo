@@ -1,12 +1,18 @@
 #!/bin/bash
 
-DoUtils=$1
+policy=$1
+DoUtils=$2
+
+write_config() {
+  ip=$1
+  sed "s/HOSTIP/$ip/" config.template.yml | sed "s/POLICY/$policy/" > config.yml
+}
 
 copy_config() {
   svr=$1
   ip=$(ssh $svr "ip -f inet addr show eth1 | sed -En -e 's/.*inet ([0-9.]+).*/\1/p'")
-  sed "s/HOSTIP/$ip/" config.template.yml > config.yml
 
+  write_config $ip
   echo "[.] copy config to $svr"
   rsync config.yml $svr:~/
 }
@@ -39,5 +45,5 @@ done
 
 echo "[+] set local config"
 ip=$(ip -f inet addr show eth1 | sed -En -e 's/.*inet ([0-9.]+).*/\1/p')
-sed "s/HOSTIP/$ip/" config.template.yml > config.yml
+write_config $ip
 
