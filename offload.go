@@ -19,6 +19,11 @@ type router struct {
 type OffloadPolicy string
 
 const (
+	OffloadSuccess = "Offload-Success"
+	NodeStatus     = "Node-Status"
+)
+
+const (
 	OffloadRoundRobin = "roundrobin"
 	OffloadRandom     = "random"
 	OffloadFederated  = "federated"
@@ -65,14 +70,14 @@ func (f *FunctionInfo) getSnapshot() Snapshot {
 	defer f.mu.Unlock()
 	return Snapshot{
 		Name: f.name,
-		Qlen: f.invoke_list.Len(),
+		Qlen: float32(f.invoke_list.Len()),
 	}
 }
 
 type Snapshot struct {
-	Name        string `json:"name"`
-	Qlen        int    `json:"qlen"`
-	HasCapacity bool   `json:"hascapacity"`
+	Name        string  `json:"name"`
+	Qlen        float32 `json:"qlen"`
+	HasCapacity bool    `json:"hascapacity"`
 }
 
 type OffloaderIntf interface {
@@ -82,6 +87,7 @@ type OffloaderIntf interface {
 	IsOffloaded(req *http.Request) bool
 	GetOffloadCandidate(req *http.Request) string
 	GetStatusStr() string
+	PostOffloadUpdate(snap Snapshot, target string)
 	Close()
 }
 
@@ -153,5 +159,9 @@ func (o *BaseOffloader) GetStatusStr() string {
 }
 
 func (o *BaseOffloader) Close() {
+
+}
+
+func (o *BaseOffloader) PostOffloadUpdate(snap Snapshot, targte string) {
 
 }

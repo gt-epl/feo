@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strconv"
 	"sync/atomic"
 
 	"flag"
@@ -81,18 +82,21 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	log.Println("Recv req")
 	ctx, localExecution := r.offloader.CheckAndEnq(req)
 
-	if !localExecution {
-		if r.offloader.IsOffloaded(req) {
-			// return Neg Ack from offloadee.
-			w.Header().Set("Content-Type", "application/json")
+	if r.offloader.IsOffloaded(req) {
+		//set offloadee header details
+		w.Header().Set("Content-Type", "application/json")
+		stat := r.offloader.GetStatusStr()
+		log.Println("[DEBUG] offload status ack=", stat)
+		w.Header().Set(OffloadSuccess, strconv.FormatBool(localExecution))
+		w.Header().Set(NodeStatus, stat)
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "") //empty response
+	}
 
-			//set offloadee header details
-			log.Println("[DEBUG] send Neg ACK")
-			stat := r.offloader.GetStatusStr()
-			log.Println("[DEBUG] status=", stat)
-			w.Header().Set("Offload-Status", stat)
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, "")
+	if !localExecution {
+
+		//disallow nested offloads
+		if r.offloader.IsOffloaded(req) {
 			return
 		}
 
@@ -113,15 +117,23 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				log.Println("[WARN] offload http request failed: ", err)
 				localExecution = true
 			} else {
-				jstr := resp.Header.Get("Offload-Status")
-				log.Println("[DEBUG] Successful Offload: ", resp.StatusCode, jstr)
+				success, _ := strconv.ParseBool(resp.Header.Get(OffloadSuccess))
+				jstr := resp.Header.Get(NodeStatus)
+				log.Println("[DEBUG] Successful Offload Request: ", resp.StatusCode, jstr)
 				snap := Snapshot{}
 				err := json.Unmarshal([]byte(jstr), &snap)
 				//only if offload-status present which is sent on neg-ack
-				if err == nil {
-					localExecution = !snap.HasCapacity
+				if err != nil {
+					//never should happen
+					log.Fatal("Failed parsing of node snapshot")
 				}
-				resp.Body.Close()
+				localExecution = !success
+				if success {
+					log.Println("[DEBUG] Successful offload execution")
+					break
+				}
+				log.Println("[DEBUG] failed offload execution")
+				r.offloader.PostOffloadUpdate(snap, candidate)
 			}
 		}
 
@@ -151,6 +163,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	} else {
 		offload.Add(1)
 	}
+
 	log.Printf("Local,Offload=%d,%d\n", local.Load(), offload.Load())
 	io.Copy(w, resp.Body)
 	if resp.Body != nil {
