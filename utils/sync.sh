@@ -37,6 +37,7 @@ for ((i=0;i<$num_nodes;i++)); do
     echo "[.] copy onetime utils"
     rsync utils/custom.conf $svr:~/
     rsync -avz utils $svr:~/
+    rsync -avz apps $svr:~/
   fi
 
   echo "---"
