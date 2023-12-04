@@ -5,6 +5,7 @@ import torchvision.transforms.functional as transform
 from PIL import Image
 import io
 import json
+import base64
 
 # Load the model and weights
 start_model_loading = time.time()
@@ -13,11 +14,13 @@ model = ssdlite320_mobilenet_v3_large(weights=weights, box_score_thresh=0.9)
 model.eval()
 end_model_loading = time.time()
 
-def main(event):
+def main(args):
+
     global start_model_loading, end_model_loading
     try:
         # Load input image from event
-        image_data = event.body
+        encoded_image_data = args['img']
+        image_data = base64.b64decode(encoded_image_data)
         image = Image.open(io.BytesIO(image_data))
         # The image can be converted to tensor using
         img = transform.to_tensor(image)
@@ -62,3 +65,15 @@ def main(event):
             "statusCode": 500,
             "body": f"Internal Server Error: {str(e)}"
         }
+
+class Event():
+    def __init__(self):
+        self.body = None
+
+if __name__ == '__main__':
+    with open('coldstart.jpeg', 'rb') as image_file:
+        image_data = image_file.read()
+    event = Event()
+    event.body = image_data
+    ret = main(event)
+    print(ret)
