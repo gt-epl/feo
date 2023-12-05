@@ -153,6 +153,22 @@ func (s *server) UpdateState(ctx context.Context, in *pb.NodeState) (*pb.UpdateS
 	return &pb.UpdateStateResponse{Success: true}, nil
 }
 
+func (s *server) GetState(ctx context.Context, in *pb.StateQuery) (*pb.StateResponse, error) {
+	resp := &pb.StateResponse{}
+	s.mapMu.Lock()
+	resp.Nodes = []*pb.NodeState{}
+
+	for node, info := range s.nodemap {
+		ni := &pb.NodeState{}
+		ni.FinfoList = []*pb.FunctionInfo{{FunctionName: info.fname, Qlen: info.qlen}}
+		ni.Name = node
+
+		resp.Nodes = append(resp.Nodes, ni)
+	}
+	s.mapMu.Unlock()
+	return resp, nil
+}
+
 func (s *server) GetCandidate(ctx context.Context, in *pb.CandidateQuery) (*pb.CandidateResponse, error) {
 
 	s.mapMu.Lock()

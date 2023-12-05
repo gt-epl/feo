@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strconv"
 	"sync/atomic"
 
 	"flag"
@@ -16,17 +17,11 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 const RETRY_MAX = 1
-
-type router struct {
-	scheme string
-	host   string
-	weight float64
-	// Microseconds
-	timeElapsed float64
-}
 
 type offloadHandler struct {
 	host      string
@@ -36,30 +31,6 @@ type offloadHandler struct {
 var local, offload atomic.Int32
 
 var client http.Client
-
-// TODO: use a yaml/json encoder to convert this.
-func PopulateForwardList(routerListString string) []router {
-
-	var routerList []router
-	routerStringList := strings.Split(routerListString, "\n")
-	for _, routerString := range routerStringList {
-		if routerString == "" {
-			continue
-		}
-		routerUrl, err := url.Parse(routerString)
-		if err != nil {
-			log.Fatal("PopulateForwardList: Error parsing router list")
-		}
-
-		var newRouter router
-		newRouter.scheme = routerUrl.Scheme
-		newRouter.host = routerUrl.Host
-		newRouter.weight = 0.0
-		newRouter.timeElapsed = 0.0
-		routerList = append(routerList, newRouter)
-	}
-	return routerList
-}
 
 func (o *offloadHandler) createProxyReq(originalReq *http.Request, target string, isOffload bool) *http.Request {
 	ODMN_PORT := "9696"
@@ -113,21 +84,23 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	log.Println("Recv req")
 	ctx, localExecution := r.offloader.CheckAndEnq(req)
 
+	if r.offloader.IsOffloaded(req) {
+		//set offloadee header details
+		w.Header().Set("Content-Type", "application/json")
+		stat := r.offloader.GetStatusStr()
+		log.Println("[DEBUG] offload status ack=", stat)
+		w.Header().Set(OffloadSuccess, strconv.FormatBool(localExecution))
+		w.Header().Set(NodeStatus, stat)
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "") //empty response
+		r.offloader.MetricSMAnalyze(metricCtx)
+		r.offloader.MetricSMDelete(metricCtx)
+	}
+
 	if !localExecution {
+
+		//disallow nested offloads
 		if r.offloader.IsOffloaded(req) {
-			// return Neg Ack from offloadee.
-			w.Header().Set("Content-Type", "application/json")
-
-			//set offloadee header details
-			log.Println("[DEBUG] send Neg ACK")
-			stat := r.offloader.GetStatusStr()
-			log.Println("[DEBUG] status=", stat)
-			w.Header().Set("Offload-Status", stat)
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, "")
-
-			r.offloader.MetricSMAnalyze(metricCtx)
-			r.offloader.MetricSMDelete(metricCtx)
 			return
 		}
 
@@ -154,22 +127,24 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				log.Println("[WARN] offload http request failed: ", err)
 				localExecution = true
 			} else {
-				jstr := resp.Header.Get("Offload-Status")
-				log.Println("[DEBUG] Successful Offload: ", resp.StatusCode, jstr)
+				success, _ := strconv.ParseBool(resp.Header.Get(OffloadSuccess))
+				jstr := resp.Header.Get(NodeStatus)
+				log.Println("[DEBUG] Successful Offload Request: ", resp.StatusCode, jstr)
 				snap := Snapshot{}
 				err := json.Unmarshal([]byte(jstr), &snap)
 				//only if offload-status present which is sent on neg-ack
-				if err == nil {
-					localExecution = !snap.HasCapacity
-				} else if resp.StatusCode != http.StatusOK {
-					log.Println("Bad http response", resp.StatusCode)
-				} else {
-					r.offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTOFFLOAD"))
-					// This is in the critical path.
+				if err != nil {
+					//never should happen
+					log.Fatal("Failed parsing of node snapshot")
 				}
-
-				// BUG: This should be closed only after we copy the response in line 198.
-				// resp.Body.Close()
+				localExecution = !success
+				if success {
+					log.Println("[DEBUG] Successful offload execution")
+					r.offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTOFFLOAD"))
+					break
+				}
+				log.Println("[DEBUG] failed offload execution")
+				r.offloader.PostOffloadUpdate(snap, candidate)
 			}
 		}
 
@@ -203,6 +178,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	} else {
 		offload.Add(1)
 	}
+
 	log.Printf("Local,Offload=%d,%d\n", local.Load(), offload.Load())
 
 	io.Copy(w, resp.Body)
@@ -221,9 +197,17 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func main() {
 	// client := &http.Client{}
-	var nodelist = flag.String("nodelist", "routerlist.txt", "file containing line separated nodeip:port for offload candidates")
-	var policystr = flag.String("policy", "", "offload policy")
+	var configstr = flag.String("config", "config.yml", "YML config for faas orchestrator")
 	flag.Parse()
+
+	f, err := os.ReadFile(*configstr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var config FeoConfig
+	if err := yaml.Unmarshal(f, &config); err != nil {
+		log.Fatal(err)
+	}
 
 	//telemetry
 	local.Store(0)
@@ -231,24 +215,17 @@ func main() {
 
 	//backendUrl := url.Parse("http://host:3233/api/v1/namespaces/guest/actions/copy?blocking=true&result=true")
 
-	routerListString, err := os.ReadFile(*nodelist)
-	if err != nil {
-		log.Fatal("Error in reading router list file.")
-	}
-
-	// NOTE: We need os.Args[1] to be the value that we are going to use in the router list file!!
-	routerList := PopulateForwardList(string(routerListString))
-	for _, ele := range routerList {
-		log.Println(ele.host)
+	for _, ele := range config.Peers {
+		log.Println(ele)
 	}
 
 	//TODO: use gflags instead of os.Args
-	policy := OffloadPolicy(*policystr)
-	cur_offloader := OffloadFactory(policy, routerList, routerList[0].host)
+	policy := OffloadPolicy(config.Policy.Name)
+	cur_offloader := OffloadFactory(policy, config)
 
 	s := &http.Server{
-		Addr:           routerList[0].host,
-		Handler:        &offloadHandler{offloader: cur_offloader, host: routerList[0].host},
+		Addr:           config.Host,
+		Handler:        &offloadHandler{offloader: cur_offloader, host: config.Host},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,

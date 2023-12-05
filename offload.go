@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+type router struct {
+	scheme string
+	host   string
+}
+
 type OffloadPolicy string
 
 const (
@@ -36,8 +41,22 @@ const (
 	FinalState			= "FINAL"
 )
 
-func OffloadFactory(pol OffloadPolicy, routerList []router, host string) OffloaderIntf {
-	base := NewBaseOffloader(host, routerList)
+const (
+	OffloadSuccess = "Offload-Success"
+	NodeStatus     = "Node-Status"
+)
+
+const (
+	OffloadRoundRobin = "roundrobin"
+	OffloadRandom     = "random"
+	OffloadFederated  = "federated"
+	OffloadCentral    = "central"
+	OffloadHybrid     = "hybrid"
+	OffloadEpoch      = "epoch"
+)
+
+func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {
+	base := NewBaseOffloader(config)
 	switch pol {
 	case OffloadRoundRobin:
 		log.Println("[INFO] Selecting RoundRobin Offloader")
@@ -63,6 +82,9 @@ func OffloadFactory(pol OffloadPolicy, routerList []router, host string) Offload
 	case RRLatency:
 		log.Println("[INFO] Selecting Round Robin Latency Offloader")
 		return NewRRLatencyOffloader(base)
+	case OffloadEpoch:
+		log.Println("[INFO] Selecting Epoch Offloader")
+		return NewEpochOffloader(base)
 	default:
 		log.Println("[WARNING] No policy specified. Selecting Base Offloader")
 		return base
@@ -97,14 +119,14 @@ func (f *FunctionInfo) getSnapshot() Snapshot {
 	defer f.mu.Unlock()
 	return Snapshot{
 		Name: f.name,
-		Qlen: f.invoke_list.Len(),
+		Qlen: float32(f.invoke_list.Len()),
 	}
 }
 
 type Snapshot struct {
-	Name        string `json:"name"`
-	Qlen        int    `json:"qlen"`
-	HasCapacity bool   `json:"hascapacity"`
+	Name        string  `json:"name"`
+	Qlen        float32 `json:"qlen"`
+	HasCapacity bool    `json:"hascapacity"`
 }
 
 type OffloaderIntf interface {
@@ -114,6 +136,7 @@ type OffloaderIntf interface {
 	IsOffloaded(req *http.Request) bool
 	GetOffloadCandidate(req *http.Request) string
 	GetStatusStr() string
+	PostOffloadUpdate(snap Snapshot, target string)
 	Close()
 	MetricSMInit() *list.Element
 	MetricSMAnalyze(ctx *list.Element)
@@ -133,8 +156,12 @@ type BaseOffloader struct {
 	MetricSMMu		sync.Mutex
 }
 
-func NewBaseOffloader(host string, routerList []router) *BaseOffloader {
-	o := BaseOffloader{Host: host, RouterList: routerList, Qlen_max: math.MaxInt32}
+func NewBaseOffloader(config FeoConfig) *BaseOffloader {
+	routerList := []router{}
+	for _, ip := range config.Peers {
+		routerList = append(routerList, router{host: ip})
+	}
+	o := BaseOffloader{Host: config.Host, RouterList: routerList, Qlen_max: math.MaxInt32}
 	o.Finfo.invoke_list = list.New()
 	o.MetricSMList = list.New()
 	return &o
@@ -287,4 +314,9 @@ func (o *BaseOffloader) MetricSMDelete(ctx *list.Element) {
 	o.MetricSMMu.Lock()
 	defer o.MetricSMMu.Unlock()
 	o.MetricSMList.Remove(ctx)
+
+}
+
+func (o *BaseOffloader) PostOffloadUpdate(snap Snapshot, targte string) {
+
 }
