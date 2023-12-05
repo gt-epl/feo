@@ -27,6 +27,7 @@ const (
 	OffloadImpedence 	= "impedence"
 	RandomProportional 	= "randomproportional"
 	RRLatency 			= "roundrobinlatency"
+	OffloadEpoch		= "epoch"
 )
 
 type MetricSMState string
@@ -44,15 +45,6 @@ const (
 const (
 	OffloadSuccess = "Offload-Success"
 	NodeStatus     = "Node-Status"
-)
-
-const (
-	OffloadRoundRobin = "roundrobin"
-	OffloadRandom     = "random"
-	OffloadFederated  = "federated"
-	OffloadCentral    = "central"
-	OffloadHybrid     = "hybrid"
-	OffloadEpoch      = "epoch"
 )
 
 func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {

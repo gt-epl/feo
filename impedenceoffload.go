@@ -9,11 +9,19 @@ import (
 	"time"
 )
 
+type extendRouter struct {
+	routerInfo	router
+	lambdasServed	int64
+	lastResponse	time.Time
+	weight		float64
+}
+
 type ImpedenceOffloader struct {
 	*BaseOffloader //hacky embedding, because you cannot override methods of an embedding
-	alpha	float64
-	candidateToIndex map[string]int
-	mu      sync.Mutex
+	alpha				float64
+	candidateToIndex 	map[string]int
+	mu      			sync.Mutex
+	ExtendRouterList	[]extendRouter
 }
 
 func NewImpedenceOffloader(base *BaseOffloader) *ImpedenceOffloader {
@@ -22,6 +30,12 @@ func NewImpedenceOffloader(base *BaseOffloader) *ImpedenceOffloader {
 
 	for idx,router := range base.RouterList {
 		impedenceOffloader.candidateToIndex[router.host] = idx
+
+		var newExtendRouter extendRouter
+		newExtendRouter.weight = 0.0
+		newExtendRouter.routerInfo = router
+
+		impedenceOffloader.ExtendRouterList = append(impedenceOffloader.ExtendRouterList, newExtendRouter)
 	}
 
 	return impedenceOffloader
@@ -43,22 +57,22 @@ func (o *ImpedenceOffloader) GetOffloadCandidate(req *http.Request) string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	total_nodes := len(o.RouterList)
+	total_nodes := len(o.ExtendRouterList)
 
 	minWeight := math.MaxFloat64
 	minIndex := -1
 
 	for i:=0; i<total_nodes; i++ {
-		if (minWeight > o.RouterList[i].weight) {
+		if (minWeight > o.ExtendRouterList[i].weight) {
 			minIndex = i
-			minWeight = o.RouterList[i].weight
+			minWeight = o.ExtendRouterList[i].weight
 		}
 	}
 
 	if (minIndex == -1) {
 		return o.Host
 	} else {
-		return o.RouterList[minIndex].host
+		return o.ExtendRouterList[minIndex].routerInfo.host
 	}
 }
 
@@ -78,8 +92,8 @@ func (o *ImpedenceOffloader) MetricSMAnalyze(ctx *list.Element) {
 			o.mu.Lock()
 			defer o.mu.Unlock()
 			
-			prevRouterWeight := o.RouterList[candidateIdx].weight
-			o.RouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
+			prevRouterWeight := o.ExtendRouterList[candidateIdx].weight
+			o.ExtendRouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
 		}
 	}
 }

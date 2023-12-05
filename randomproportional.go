@@ -9,11 +9,12 @@ import (
 	"time"
 )
 
-type extendRouter struct {
-	routerInfo		router
-	lambdasServed	int64
-	lastResponse	time.Time
-}
+// Already defined in impedenceoffload.go
+// type extendRouter struct {
+// 	routerInfo		router
+// 	lambdasServed	int64
+// 	lastResponse	time.Time
+// }
 
 type RandomPropOffloader struct {
 	*BaseOffloader //hacky embedding, because you cannot override methods of an embedding
@@ -42,6 +43,7 @@ func NewRandomPropOffloader(base *BaseOffloader) *RandomPropOffloader {
 		newExtendRouter.routerInfo = router
 		newExtendRouter.lambdasServed = 0
 		newExtendRouter.lastResponse = curTime
+		newExtendRouter.weight = 0
 
 		randomPropOffloader.ExtendRouterList = append(randomPropOffloader.ExtendRouterList, newExtendRouter)
 	}
@@ -65,7 +67,7 @@ func (o *RandomPropOffloader) GetOffloadCandidate(req *http.Request) string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	total_nodes := len(o.RouterList)
+	total_nodes := len(o.ExtendRouterList)
 
 	maxWeight := -1.0
 	maxIndex := -1
@@ -73,7 +75,7 @@ func (o *RandomPropOffloader) GetOffloadCandidate(req *http.Request) string {
 	curTime := time.Now()
 
 	for i:=0; i<total_nodes; i++ {
-		latency := o.RouterList[i].weight
+		latency := o.ExtendRouterList[i].weight
 		lambdasServed := o.ExtendRouterList[i].lambdasServed
 		timeSinceLastResponse := float64(curTime.Sub(o.ExtendRouterList[i].lastResponse).Microseconds())/1000
 
@@ -119,8 +121,8 @@ func (o *RandomPropOffloader) MetricSMAnalyze(ctx *list.Element) {
 			o.mu.Lock()
 			defer o.mu.Unlock()
 
-			prevRouterWeight := o.RouterList[candidateIdx].weight
-			o.RouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
+			prevRouterWeight := o.ExtendRouterList[candidateIdx].weight
+			o.ExtendRouterList[candidateIdx].weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
 
 			o.ExtendRouterList[candidateIdx].lambdasServed += 1
 			o.ExtendRouterList[candidateIdx].lastResponse = time.Now()
