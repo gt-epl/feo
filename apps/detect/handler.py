@@ -6,6 +6,7 @@ from PIL import Image
 import io
 import json
 import base64
+import sys
 
 # Load the model and weights
 start_model_loading = time.time()
@@ -15,6 +16,7 @@ model.eval()
 end_model_loading = time.time()
 
 def main(args):
+    invoke_start_time = time.time()
 
     global start_model_loading, end_model_loading
     try:
@@ -47,19 +49,15 @@ def main(args):
         # Count and clear model loading time measurement
         model_loading_time = (end_model_loading - start_model_loading) * 1000.0
         end_model_loading = start_model_loading
+        e2e_invoke_time = 1000.0*(time.time() - invoke_start_time)
 
         return {
-            "statusCode": 200,
-            "body": json.dumps({
                 "bounding_boxes": bboxes,
                 "model_loading_time": model_loading_time,
                 "preprocessing_time": (end_preprocess - start_preprocess) * 1000.0,
-                "prediction_time": (end_prediction - start_prediction) * 1000.0
-            }),
-            "headers": {
-                "Content-Type": "application/json"
-            }
-        }
+                "prediction_time": (end_prediction - start_prediction) * 1000.0,
+                "invoke_time": e2e_invoke_time
+                }
     except Exception as e:
         return {
             "statusCode": 500,
@@ -73,7 +71,14 @@ class Event():
 if __name__ == '__main__':
     with open('coldstart.jpeg', 'rb') as image_file:
         image_data = image_file.read()
-    event = Event()
-    event.body = image_data
-    ret = main(event)
-    print(ret)
+
+    encoded = base64.b64encode(image_data).decode()
+    duration = int(sys.argv[1])
+
+    body = {"img":encoded}
+    start = time.time()
+    while True:
+        if time.time()-start>duration:
+            break
+        ret = main(body)
+        print(ret['invoke_time'])
