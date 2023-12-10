@@ -93,11 +93,11 @@ type OffloaderIntf interface {
 
 // TODO: This is single function currently. Provide multi-function support.
 type BaseOffloader struct {
-	Finfo          FunctionInfo
-	Host           string
-	RouterList     []router
-	Qlen_max       int32
-	ControllerAddr string
+	Finfo      FunctionInfo
+	Host       string
+	RouterList []router
+	Qlen_max   int32
+	config     FeoConfig
 }
 
 func NewBaseOffloader(config FeoConfig) *BaseOffloader {
@@ -105,7 +105,7 @@ func NewBaseOffloader(config FeoConfig) *BaseOffloader {
 	for _, ip := range config.Peers {
 		routerList = append(routerList, router{host: ip})
 	}
-	o := BaseOffloader{Host: config.Host, RouterList: routerList, Qlen_max: math.MaxInt32}
+	o := BaseOffloader{Host: config.Host, RouterList: routerList, Qlen_max: math.MaxInt32, config: config}
 	o.Finfo.invoke_list = list.New()
 	return &o
 }
