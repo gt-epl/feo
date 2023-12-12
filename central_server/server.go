@@ -173,7 +173,7 @@ func (s *server) GetCandidate(ctx context.Context, in *pb.CandidateQuery) (*pb.C
 
 	s.mapMu.Lock()
 	minv := float32(10000)
-	var key string
+	key := in.NodeName
 
 	for k, v := range s.nodemap {
 		// log.Println("[DEBUG] mapele: ", k, v.qlen)
