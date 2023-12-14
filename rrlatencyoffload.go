@@ -33,7 +33,7 @@ func (pq PriorityQueue) Len() int { return len(pq) }
 
 func (pq PriorityQueue) Less(i, j int) bool {
 	// We want Pop to give us the highest, not lowest, priority so we use greater than here.
-	return pq[i].ce.deficit < pq[j].ce.deficit
+	return pq[i].ce.deficit > pq[j].ce.deficit
 }
 
 func (pq PriorityQueue) Swap(i, j int) {
@@ -47,6 +47,7 @@ func (pq *PriorityQueue) Push(x any) {
 	item := x.(*Item)
 	item.index = n
 	*pq = append(*pq, item)
+	heap.Fix(pq, item.index)
 }
 
 func (pq *PriorityQueue) Pop() any {
@@ -124,7 +125,8 @@ func NewRRLatencyOffloader(base *BaseOffloader) *RRLatencyOffloader {
 		rrLatencyOffloader.candidateToItem[router.host] = newItem
 		rrLatencyOffloader.itemArray = append(rrLatencyOffloader.itemArray, newItem)
 
-		heap.Push(&rrLatencyOffloader.pq, newItem)
+		// heap.Push(&rrLatencyOffloader.pq, newItem)
+		rrLatencyOffloader.pq.Push(newItem)
 	}
 	
 	// Src: https://gobyexample.com/random-numbers
@@ -172,6 +174,8 @@ func (o *RRLatencyOffloader) GetOffloadCandidate(req *http.Request) string {
 		return o.itemArray[idx].ce.candidate
 	} else {
 		if (o.pq[len(o.pq)-1].ce.active) {
+			// log.Println("[DEBUG] Lowest weight:", o.pq[len(o.pq)-1].ce.weight)
+			// log.Println("[DEBUG] Priority queue", o.pq[0].ce.weight)
 			idx = len(o.pq)-1
 
 			o.pq.update(o.pq[idx], o.pq[idx].ce.deficit + o.pq[idx].ce.weight)
@@ -229,7 +233,8 @@ func (o *RRLatencyOffloader) MetricSMAnalyze(ctx *list.Element) {
 				candidateItem.ce.ResetStalePeriod(o.initStalePeriod)
 				candidateItem.ce.active = true
 
-				heap.Push(&o.pq, candidateItem)
+				// heap.Push(&o.pq, candidateItem)
+				o.pq.Push(candidateItem)
 			} else {
 				candidateItem.ce.UpdateStalePeriod(o.maxStalePeriod, o.backoffCoefficient)
 			}
@@ -237,19 +242,44 @@ func (o *RRLatencyOffloader) MetricSMAnalyze(ctx *list.Element) {
 			prevRouterWeight := candidateItem.ce.weight
 			candidateItem.ce.weight = prevRouterWeight * (1 - o.alpha) + float64(timeElapsed.Microseconds()/1000) * o.alpha
 			
-			// O(n) -> where n is the number of routers
-			lowestWtItem := o.lowestWeightItem()
-			// lowestWtItem := o.pq[0]
-			
-			if (candidateItem.ce.weight > 2*lowestWtItem.ce.weight) {
-				candidateItem.ce.active = false
-				o.pq.update(candidateItem, -1)
-				popItem := heap.Pop(&o.pq)
+			if (candidateItem.ce.active) {
 
-				if (popItem.(*Item) != candidateItem) {
-					log.Println("[DEBUG] Popped item not equal to candidate item")
+				// ADDED: Check if this makes sense.
+				// It only makes sense to do this if the node itself is active. Multiple requests could have gone through when active and it might have been probed and then set back to not-probe.
+
+				// O(n) -> where n is the number of routers
+				lowestWtItem := o.lowestWeightItem()
+				// lowestWtItem := o.pq[0]
+
+				if (candidateItem.ce.weight > 2*lowestWtItem.ce.weight) {
+					candidateItem.ce.active = false
+
+					// for i := 0; i<len(o.pq); i++ {
+					// 	log.Println("[DEBUG] deficit value", o.pq[i].ce.deficit)
+					// }
+					// log.Println("Step 1")
+
+					o.pq.update(candidateItem, -1)
+
+					// for i := 0; i<len(o.pq); i++ {
+					// 	log.Println("[DEBUG] deficit value", o.pq[i].ce.deficit)
+					// }
+					// log.Println("Step 2")
+
+					// popItem := heap.Pop(&o.pq)
+					popItem := o.pq.Pop()
+
+					// for i := 0; i<len(o.pq); i++ {
+					// 	log.Println("[DEBUG] deficit value", o.pq[i].ce.deficit)
+					// }
+					// log.Println("Step 3")
+
+					if (popItem.(*Item) != candidateItem) {
+						log.Println("[DEBUG] Popped item not equal to candidate item")
+					}
 				}
 			}
+
 		}
 		candidateItem.ce.lastUpdated = time.Now()
 	} else {
