@@ -15,12 +15,13 @@ import (
 
 type EpochOffloader struct {
 	*BaseOffloader
-	quit     chan bool
-	gap_ms   int
-	epoch_ms int
-	wg       sync.WaitGroup
-	conn     *grpc.ClientConn
-	client   pb.OffloadStateHubClient
+	quit           chan bool
+	gap_ms         int
+	epoch_ms       int
+	wg             sync.WaitGroup
+	conn           *grpc.ClientConn
+	client         pb.OffloadStateHubClient
+	ControllerAddr string
 
 	//TODO: update after statemachine is updated
 	invocation_history []int64
@@ -36,7 +37,7 @@ func NewEpochOffloader(base *BaseOffloader) *EpochOffloader {
 	fed.gap_ms = 1000
 	fed.epoch_ms = 2000
 	fed.quit = make(chan bool)
-	fed.ControllerAddr = "192.168.10.13:50051"
+	fed.ControllerAddr = fed.config.Controller
 	fed.nodemap = make(map[string]float32)
 
 	//setup connection with controller

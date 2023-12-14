@@ -15,11 +15,12 @@ import (
 
 type HybridOffloader struct {
 	*BaseOffloader
-	quit   chan bool
-	gap_ms int
-	wg     sync.WaitGroup
-	conn   *grpc.ClientConn
-	client pb.OffloadStateHubClient
+	quit           chan bool
+	gap_ms         int
+	wg             sync.WaitGroup
+	conn           *grpc.ClientConn
+	client         pb.OffloadStateHubClient
+	ControllerAddr string
 
 	//TODO: update after statemachine is updated
 	invocation_history []int64
@@ -33,7 +34,7 @@ func NewHybridOffloader(base *BaseOffloader) *HybridOffloader {
 	fed.Qlen_max = 2
 	fed.gap_ms = 1000
 	fed.quit = make(chan bool)
-	fed.ControllerAddr = "192.168.10.13:50051"
+	fed.ControllerAddr = fed.config.Controller
 
 	//setup connection with controller
 	var err error
