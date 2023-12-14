@@ -93,8 +93,8 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set(NodeStatus, stat)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "") //empty response
-		r.offloader.MetricSMAnalyze(metricCtx)
-		r.offloader.MetricSMDelete(metricCtx)
+		// r.offloader.MetricSMAnalyze(metricCtx)
+		// r.offloader.MetricSMDelete(metricCtx)
 	}
 
 	if !localExecution {
