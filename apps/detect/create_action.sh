@@ -1,4 +1,7 @@
-wsk action create detect handler.py \
+# Absolue directory of this script
+SCRIPT_DIR=$(dirname "$(realpath $0)")
+
+wsk action create detect $SCRIPT_DIR/handler.py \
   --memory 1024 \
   --docker asarma31/action-python-v3.11:detectlib \
 	--apihost http://localhost:3233 \
