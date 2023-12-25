@@ -18,10 +18,12 @@ copy_config() {
   rsync config.yml $svr:$DST
 }
 
-## IMP: CWD is important. We expect to find feo under ~
+# Absolue directory of this script
+SCRIPT_DIR=$(dirname "$(realpath $0)")
+FEO_DIR="$SCRIPT_DIR/../"
 
 export PATH=$PATH:/usr/local/go/bin
-cd ~/feo
+cd "$FEO_DIR"
 go build
 cd central_server
 go build
@@ -39,7 +41,7 @@ for ((i=0;i<$num_nodes;i++)); do
 
   ## onetime only
   if [ ! -z "$DoUtils" ]; then
-    echo "[.] copy onetime utils"
+    echo "[.] copy onetime utils and apps"
     rsync utils/custom.conf $svr:~/
     rsync -avz utils $svr:~/
     rsync -avz apps $svr:~/
@@ -49,7 +51,7 @@ for ((i=0;i<$num_nodes;i++)); do
 
 done
 
-echo "[+] set local config"
+echo "[+] save config locally in tmp"
 ip=$(ip -f inet addr show eth1 | sed -En -e 's/.*inet ([0-9.]+).*/\1/p')
 write_config $ip
 cp config.yml $DST
