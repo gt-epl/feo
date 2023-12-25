@@ -2,6 +2,7 @@
 
 policy=$1
 DoUtils=$2
+CopyToClabsvr=$3 # Set to true if not running sync.sh from within the cluster (e.g. locally)
 DST=/tmp/
 
 write_config() {
@@ -18,20 +19,8 @@ copy_config() {
   rsync config.yml $svr:$DST
 }
 
-# Absolue directory of this script
-SCRIPT_DIR=$(dirname "$(realpath $0)")
-FEO_DIR="$SCRIPT_DIR/../"
-
-export PATH=$PATH:/usr/local/go/bin
-cd "$FEO_DIR"
-go build
-cd central_server
-go build
-cd ..
-
-num_nodes=4
-for ((i=0;i<$num_nodes;i++)); do
-  svr=clabcl$i
+copy_to_svr() {
+  svr=$1
   echo "[+] $svr : copy binaries"
   rsync feo $svr:$DST
 
@@ -48,7 +37,27 @@ for ((i=0;i<$num_nodes;i++)); do
   fi
 
   echo "---"
+}
 
+# Absolue directory of this script
+SCRIPT_DIR=$(dirname "$(realpath $0)")
+FEO_DIR="$SCRIPT_DIR/../"
+
+export PATH=$PATH:/usr/local/go/bin
+cd "$FEO_DIR"
+go build
+cd central_server
+go build
+cd ..
+
+if [ ! -z "$CopyToClabsvr" ]; then
+  copy_to_svr clabsvr
+fi
+
+num_nodes=4
+for ((i=0;i<$num_nodes;i++)); do
+  svr=clabcl$i
+  copy_to_svr $svr
 done
 
 echo "[+] save config locally in tmp"
