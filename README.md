@@ -36,7 +36,28 @@ On `feo/config.template.yml`, adjust the peer address & controller address so th
 On each profile file under `loadgen/profiles`, the hostname in the first column should match the names in the list `hosts` defined in `run_load.py`.
 
 ### Copying files to each node
-The script `loadgen/run_load.py` will take care of copying relevant binaries, scripts, and application code to each node.
+You have 3 options to run the files
+1) Run `loadgen/run_load.py` (and eventually) `./utils/sync.sh` locally. In this case you do not have to copy an sshconfig file or a sshkey file to a remote machine. `loaden/run_load.py` takes care of copying any binary and/or application, util files. 
+>**Note:** In `run_load.py`, `CONFIG_EXEC_LOCAL` must be set to `True`. Also, the local node must have go & python installed to build/run the scripts.
+
+2) Copy this directory (`feo`) into `clabsvr` node. We run `loadgen/run_load.py` *locally*, but the script will run `utils/sync.sh` *remotely*.
+>**Note:** This requires us to copy a SSH private key to `clabsvr`, so that the `clabsvr` node can `ssh` into other nodes. Create a dedicated, NON_CRITICAL SSH key for this instance!
+
+```
+cd ../
+rsync -avz ./feo clabsvr:~/
+rsync {path to the sshconfig file defined above} clabsvr:~/.ssh/{path to sshconfig file}
+rsync {path to the ssh identity file (privatekey) defined above} clabsvr:~/.ssh/{path to identity file}
+```
+
+3) Copy both `../feo` and `../loadgen` to `clabsvr` node. This allows us to avoid the need to setup a build environment locally. 
+>**Note:** In `run_load.py`, `CONFIG_EXEC_LOCAL` must be set to `True`. Also, the results residing in `clabsvr:RESULT_DIR` must be moved to a persistent storage. 
+
+In addition to the above command, run:
+```
+rsync -avz ./loadgen clabsvr:~/
+```
+
 
 ## Run evaluations 
 ```
