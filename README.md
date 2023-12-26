@@ -36,7 +36,7 @@ On `feo/config.template.yml`, adjust the peer address & controller address so th
 On each profile file under `loadgen/profiles`, the hostname in the first column should match the names in the list `hosts` defined in `run_load.py`.
 
 ### Copying files to each node
-You have 3 options to run the files
+There are 3 options to run the files
 1) Run `loadgen/run_load.py` (and eventually) `./utils/sync.sh` locally. In this case you do not have to copy an sshconfig file or a sshkey file to a remote machine. `loaden/run_load.py` takes care of copying any binary and/or application, util files. 
 >**Note:** In `run_load.py`, `CONFIG_EXEC_LOCAL` must be set to `True`. Also, the local node must have go & python installed to build/run the scripts.
 
@@ -45,9 +45,9 @@ You have 3 options to run the files
 
 ```
 cd ../
-rsync -avz ./feo clabsvr:~/
 rsync {path to the sshconfig file defined above} clabsvr:~/.ssh/{path to sshconfig file}
 rsync {path to the ssh identity file (privatekey) defined above} clabsvr:~/.ssh/{path to identity file}
+rsync -avz ./feo clabsvr:~/  OR  ssh clabsvr; cd ~; git clone git@github.gatech.edu:faasedge/feo.git
 ```
 
 3) Copy both `../feo` and `../loadgen` to `clabsvr` node. This allows us to avoid the need to setup a build environment locally. 
@@ -55,7 +55,7 @@ rsync {path to the ssh identity file (privatekey) defined above} clabsvr:~/.ssh/
 
 In addition to the above command, run:
 ```
-rsync -avz ./loadgen clabsvr:~/
+rsync -avz ./loadgen clabsvr:~/  OR  ssh clabsvr; cd ~; git clone git@github.gatech.edu:faasedge/loadgen.git
 ```
 
 
