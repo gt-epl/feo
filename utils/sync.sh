@@ -45,9 +45,9 @@ FEO_DIR="$SCRIPT_DIR/../"
 
 export PATH=$PATH:/usr/local/go/bin
 cd "$FEO_DIR"
-go build
+GOOS=linux GOARCH=amd64 go build
 cd central_server
-go build
+GOOS=linux GOARCH=amd64 go build
 cd ..
 
 if [ ! -z "$CopyToClabsvr" ]; then
