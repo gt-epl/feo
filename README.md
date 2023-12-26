@@ -2,7 +2,7 @@
 >**NOTE:**  The README assumes an environment where the code is cloned, edited, and built locally, and is deployed on a remote cloudlab cluster. Adjust the commands as necessary depending on the actual execution deployment environment. 
 
 ### Cloning Repositories
-Clone the following repositories: 
+Clone the following repositories. Refer to [this section below](#-copying-files-to-each-node) for a description on different cloning options
 ```
 git clone git@github.gatech.edu:faasedge/feo.git
 git clone git@github.gatech.edu:faasedge/loadgen.git
@@ -13,6 +13,7 @@ git clone git@github.gatech.edu:faasedge/feo-notebooks.git
 ### Modifying Configurations
 Append the following entry to a sshconfig file (e.g. `~/.ssh/config`)
 The following is an example configuration. Note the alias `clabcl0` defined next to `Host`. This alias is an important key in `loadgen/run_load.py`. 
+For the scripts to work correctly, the last host should be `clabsvr`. You may adjust the scripts if you wish to use a different nameset. 
 
 ```
 Host clabcl0
@@ -25,6 +26,9 @@ Host clabcl0
   ServerAliveInterval 120
 
 Host clabcl1
+...
+
+Host clabsvr
 ...
 ```
 
