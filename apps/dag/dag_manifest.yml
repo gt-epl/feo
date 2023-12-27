@@ -9,6 +9,7 @@ vertices:
 - stage_name: 'incrementBy3'
   action_name: 'incrementBy3'
   downstream_vertices: ['incrementBy4']
+  should_not_offload: True
 - stage_name: 'incrementBy4'
   action_name: 'incrementBy4'
   downstream_vertices: []
