@@ -18,4 +18,4 @@ wsk action create incrementBy4 $SCRIPT_DIR/increment_by_4.py \
 	--apihost $1 \
 	--auth 23bc46b1-71f6-4ed5-8c54-816aa4f8c502:123zO3xZCLrMN6v2BKK1dXYFpXlPkccOFqm12CdAsMgRU4VrNZ9lyGVCGuMDGIwP
 
-curl -X POST -H "Content-Type: application/x-yaml" --data-binary "@$SCRIPT_DIR/dag_manifest.yml" http://$HOST_IP:9696/api/v1/namespaces/guest/dag/testDagApp
+curl -X PUT -H "Content-Type: application/x-yaml" --data-binary "@$SCRIPT_DIR/dag_manifest.yml" http://$HOST_IP:9696/api/v1/namespaces/guest/dag/testDagApp

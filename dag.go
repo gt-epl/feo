@@ -10,6 +10,7 @@ type DagVertex struct {
 	StageName          string   `yaml:"stage_name"`
 	ActionName         string   `yaml:"action_name"`
 	DownstreamVertices []string `yaml:"downstream_vertices"`
+	ShouldNotOffload   bool     `yaml:"should_not_offload"`
 }
 
 type DagManifest struct {
