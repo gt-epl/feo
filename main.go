@@ -26,6 +26,7 @@ const RETRY_MAX = 1
 type requestHandler struct {
 	host      string
 	offloader OffloaderIntf
+	dagMap    map[string]*FaasEdgeDag
 }
 
 var local, offload atomic.Int32
@@ -196,7 +197,24 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 }
 
 func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http.Request) {
-	log.Println("UploadDAG")
+	// Read the binary data from the request body
+	binaryData, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	// curl -X POST -H "Content-Type: application/x-yaml" --data-binary "@apps/dag/dag_manifest.yml" http://localhost:9696/api/v1/namespaces/guest/dag/test
+	var newDagManifest DagManifest
+	if err := yaml.Unmarshal(binaryData, &newDagManifest); err != nil {
+		log.Fatal(err)
+	}
+
+	// Process the YAML data as needed
+	fmt.Printf("Received YAML data: %+v\n", newDagManifest)
+
+	dag := createDag(newDagManifest)
+	r.dagMap[dag.Name] = dag
 }
 
 func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http.Request) {
@@ -253,7 +271,7 @@ func main() {
 
 	s := &http.Server{
 		Addr:           config.Host,
-		Handler:        &requestHandler{offloader: cur_offloader, host: config.Host},
+		Handler:        &requestHandler{offloader: cur_offloader, host: config.Host, dagMap: map[string]*FaasEdgeDag{}},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,

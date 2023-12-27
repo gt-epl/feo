@@ -9,6 +9,12 @@ require (
 )
 
 require (
+	github.com/emirpasic/gods v1.18.1 // indirect
+	github.com/google/uuid v1.5.0 // indirect
+	github.com/heimdalr/dag v1.4.0 // indirect
+)
+
+require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/mroth/weightedrand v1.0.0
 	golang.org/x/net v0.14.0 // indirect

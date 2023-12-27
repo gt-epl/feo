@@ -1,0 +1,14 @@
+name: 'testDagApp'
+vertices:
+- stage_name: 'incrementBy1'
+  action_name: 'incrementBy1'
+  downstream_vertices: ['incrementBy2', 'incrementBy3']
+- stage_name: 'incrementBy2'
+  action_name: 'incrementBy2'
+  downstream_vertices: ['incrementBy4']
+- stage_name: 'incrementBy3'
+  action_name: 'incrementBy3'
+  downstream_vertices: ['incrementBy4']
+- stage_name: 'incrementBy4'
+  action_name: 'incrementBy4'
+  downstream_vertices: []
