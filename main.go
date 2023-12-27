@@ -236,35 +236,41 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 		}
 
 		// Concatenate results of parent functions
-		inputBodies := []Item{}
+		//inputBodies := []Item{}
+		parentBody := io.NopCloser(strings.NewReader("{}"))
+		// Assume no fan-out, fan-in
 		for _, r := range parentResults {
-			var item Item
+			// var item Item
 
-			parentBody, ok := r.Result.(io.ReadCloser)
+			parentBody, ok = r.Result.(io.ReadCloser)
 			if !ok {
 				log.Printf("failed to assert io.ReadCloser for parentBody %+v\n", r.Result)
 			}
-			decoder := json.NewDecoder(parentBody)
-			if err := decoder.Decode(&item); err != nil {
-				log.Fatal(err)
-			}
 
-			inputBodies = append(inputBodies, item)
+			/*
+				decoder := json.NewDecoder(parentBody)
+				if err := decoder.Decode(&item); err != nil {
+					log.Fatal(err)
+				}
+
+				inputBodies = append(inputBodies, item)
+			*/
 		}
 
 		// Create input for this function
-		newInputBody, err := json.Marshal(inputBodies)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Printf("Input body is %+v", newInputBody)
-		newReqBody := io.NopCloser(strings.NewReader(string(newInputBody)))
-
+		/*
+			newInputBody, err := json.Marshal(inputBodies)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("Input body is %+v", newInputBody)
+			newReqBody := io.NopCloser(strings.NewReader(string(newInputBody)))
+		*/
 		// Create http request to loop back to feo for this one function
 		client := &http.Client{}
 		template := "http://%s/api/v1/namespaces/guest/actions/%s?blocking=true&result=true"
 		url := fmt.Sprintf(template, req.Host, dv.ActionName)
-		req, err := http.NewRequest("POST", url, newReqBody)
+		req, err := http.NewRequest("POST", url, parentBody)
 		req.Header.Add("Authorization", "Basic MjNiYzQ2YjEtNzFmNi00ZWQ1LThjNTQtODE2YWE0ZjhjNTAyOjEyM3pPM3haQ0xyTU42djJCS0sxZFhZRnBYbFBrY2NPRnFtMTJDZEFzTWdSVTRWck5aOWx5R1ZDR3VNREdJd1A=")
 		req.Header.Add("Content-Type", "application/json")
 
@@ -276,7 +282,7 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 		if err != nil {
 			//something bad happened
 			log.Printf("local processing of vertex %s returned error %q\n", id, err)
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			http.Error(w, "request to openwhisk returned error: "+err.Error(), http.StatusBadGateway)
 		} else if resp.StatusCode != http.StatusOK {
 			log.Println("Bad http response", resp.StatusCode)
 			http.Error(w, "Bad http response", resp.StatusCode)
@@ -293,7 +299,7 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 
 	flowResult, err := d.DescendantsFlow(rootId, nil, flowCallback)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "descendantsflow returned error: "+err.Error(), http.StatusBadRequest)
 	}
 	respBody, ok := flowResult[0].Result.(io.ReadCloser)
 	if !ok {
