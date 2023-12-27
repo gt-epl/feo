@@ -23,8 +23,12 @@ type FaasEdgeDag struct {
 	dag  *dag.DAG
 }
 
-func (d *DagVertex) ID() string {
-	return d.StageName
+func (d *FaasEdgeDag) DescendantsFlow(startID string, inputs []dag.FlowResult, callback dag.FlowCallback) ([]dag.FlowResult, error) {
+	return d.dag.DescendantsFlow(startID, inputs, callback)
+}
+
+func (dv *DagVertex) ID() string {
+	return dv.StageName
 }
 
 var _ dag.IDInterface = &DagVertex{}

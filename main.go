@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heimdalr/dag"
 	"gopkg.in/yaml.v3"
 )
 
@@ -217,11 +218,98 @@ func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http
 	r.dagMap[dag.Name] = dag
 }
 
+type Item struct {
+	Payload interface{} `json:"payload"`
+}
+
 func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http.Request) {
-	log.Println("InvokeDAG")
+	dagName := strings.Split(req.URL.Path, "/")[6]
+	log.Println("InvokeDAG with name", dagName)
+	d := r.dagMap[dagName]
+
+	flowCallback := func(d *dag.DAG, id string, parentResults []dag.FlowResult) (interface{}, error) {
+		v, _ := d.GetVertex(id)
+		dv, ok := v.(*DagVertex)
+		if !ok {
+			log.Printf("Error asserting DagVertex type for id %s, %+v\n", id, v)
+			http.Error(w, fmt.Sprintf("Error asserting DagVertex type for id %s\n", id), http.StatusBadGateway)
+		}
+
+		// Concatenate results of parent functions
+		inputBodies := []Item{}
+		for _, r := range parentResults {
+			var item Item
+
+			parentBody, ok := r.Result.(io.ReadCloser)
+			if !ok {
+				log.Printf("failed to assert io.ReadCloser for parentBody %+v\n", r.Result)
+			}
+			decoder := json.NewDecoder(parentBody)
+			if err := decoder.Decode(&item); err != nil {
+				log.Fatal(err)
+			}
+
+			inputBodies = append(inputBodies, item)
+		}
+
+		// Create input for this function
+		newInputBody, err := json.Marshal(inputBodies)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Input body is %+v", newInputBody)
+		newReqBody := io.NopCloser(strings.NewReader(string(newInputBody)))
+
+		// Create http request to loop back to feo for this one function
+		client := &http.Client{}
+		template := "http://%s/api/v1/namespaces/guest/actions/%s?blocking=true&result=true"
+		url := fmt.Sprintf(template, req.Host, dv.ActionName)
+		req, err := http.NewRequest("POST", url, newReqBody)
+		req.Header.Add("Authorization", "Basic MjNiYzQ2YjEtNzFmNi00ZWQ1LThjNTQtODE2YWE0ZjhjNTAyOjEyM3pPM3haQ0xyTU42djJCS0sxZFhZRnBYbFBrY2NPRnFtMTJDZEFzTWdSVTRWck5aOWx5R1ZDR3VNREdJd1A=")
+		req.Header.Add("Content-Type", "application/json")
+
+		if err != nil {
+			// handle error
+			fmt.Println("Error")
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			//something bad happened
+			log.Printf("local processing of vertex %s returned error %q\n", id, err)
+			http.Error(w, err.Error(), http.StatusBadGateway)
+		} else if resp.StatusCode != http.StatusOK {
+			log.Println("Bad http response", resp.StatusCode)
+			http.Error(w, "Bad http response", resp.StatusCode)
+		}
+		return resp.Body, nil
+	}
+
+	// We assume only one root
+	rootList := d.dag.GetRoots()
+	var rootId string
+	for id := range rootList {
+		rootId = id
+	}
+
+	flowResult, err := d.DescendantsFlow(rootId, nil, flowCallback)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	}
+	respBody, ok := flowResult[0].Result.(io.ReadCloser)
+	if !ok {
+		log.Printf("failed to assert io.ReadCloser for flowResult %+v\n", flowResult[0])
+	}
+
+	io.Copy(w, respBody)
+	if respBody != nil {
+		respBody.Close()
+	} else {
+		log.Println("Response is empty!")
+	}
 }
 
 func (r *requestHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	log.Println("Receive request!")
 	// Check the URL path and call the appropriate function based on the endpoint
 	switch {
 	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/actions/"):
