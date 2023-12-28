@@ -1,3 +1,4 @@
-lat=$1
-sudo tc qdisc add dev eth1 root netem delay ${lat}ms
+intf=$1
+lat=$2
+sudo tc qdisc add dev $intf root netem delay ${lat}ms
 sudo tc -s qdisc

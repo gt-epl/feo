@@ -23,7 +23,7 @@ import (
 
 const RETRY_MAX = 1
 
-type offloadHandler struct {
+type requestHandler struct {
 	host      string
 	offloader OffloaderIntf
 }
@@ -32,7 +32,7 @@ var local, offload atomic.Int32
 
 var client http.Client
 
-func (o *offloadHandler) createProxyReq(originalReq *http.Request, target string, isOffload bool) *http.Request {
+func (o *requestHandler) createProxyReq(originalReq *http.Request, target string, isOffload bool) *http.Request {
 	ODMN_PORT := "9696"
 	FAAS_PORT := "3233"
 
@@ -75,10 +75,9 @@ func (o *offloadHandler) createProxyReq(originalReq *http.Request, target string
 	return upstreamReq
 }
 
-func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *http.Request) {
 
 	metricCtx := r.offloader.MetricSMInit()
-
 	var resp *http.Response
 	var ctx *list.Element
 	log.Println("Recv req")
@@ -148,6 +147,7 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		// Cannot find a node to offload. Execute locally
 		if localExecution {
 			ctx = r.offloader.ForceEnq(req)
 		}
@@ -195,6 +195,62 @@ func (r *offloadHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	return
 }
 
+func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http.Request) {
+	log.Println("UploadDAG")
+}
+
+func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http.Request) {
+	log.Println("InvokeDAG")
+}
+
+func (r *requestHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// Check the URL path and call the appropriate function based on the endpoint
+	switch {
+	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/actions/"):
+		r.handleInvokeActionRequest(w, req)
+	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/dag/"):
+		switch req.Method {
+		// Best practice would be to use 'POST' to upload/create a dag. However, for now, we use POST for invoking, to match with single action invoke.
+		case "PUT":
+			r.handleUploadDagRequest(w, req)
+		case "POST":
+			r.handleInvokeDagRequest(w, req)
+		default:
+			http.NotFound(w, req)
+		}
+	default:
+		http.NotFound(w, req)
+	}
+}
+
+func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http.Request) {
+	log.Println("UploadDAG")
+}
+
+func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http.Request) {
+	log.Println("InvokeDAG")
+}
+
+func (r *requestHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// Check the URL path and call the appropriate function based on the endpoint
+	switch {
+	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/actions/"):
+		r.handleInvokeActionRequest(w, req)
+	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/dag/"):
+		switch req.Method {
+		// Best practice would be to use 'POST' to upload/create a dag. However, for now, we use POST for invoking, to match with single action invoke.
+		case "PUT":
+			r.handleUploadDagRequest(w, req)
+		case "POST":
+			r.handleInvokeDagRequest(w, req)
+		default:
+			http.NotFound(w, req)
+		}
+	default:
+		http.NotFound(w, req)
+	}
+}
+
 func main() {
 	// client := &http.Client{}
 	var configstr = flag.String("config", "config.yml", "YML config for faas orchestrator")
@@ -225,7 +281,7 @@ func main() {
 
 	s := &http.Server{
 		Addr:           config.Host,
-		Handler:        &offloadHandler{offloader: cur_offloader, host: config.Host},
+		Handler:        &requestHandler{offloader: cur_offloader, host: config.Host},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
