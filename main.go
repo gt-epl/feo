@@ -223,34 +223,6 @@ func (r *requestHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http.Request) {
-	log.Println("UploadDAG")
-}
-
-func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http.Request) {
-	log.Println("InvokeDAG")
-}
-
-func (r *requestHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// Check the URL path and call the appropriate function based on the endpoint
-	switch {
-	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/actions/"):
-		r.handleInvokeActionRequest(w, req)
-	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/dag/"):
-		switch req.Method {
-		// Best practice would be to use 'POST' to upload/create a dag. However, for now, we use POST for invoking, to match with single action invoke.
-		case "PUT":
-			r.handleUploadDagRequest(w, req)
-		case "POST":
-			r.handleInvokeDagRequest(w, req)
-		default:
-			http.NotFound(w, req)
-		}
-	default:
-		http.NotFound(w, req)
-	}
-}
-
 func main() {
 	// client := &http.Client{}
 	var configstr = flag.String("config", "config.yml", "YML config for faas orchestrator")
