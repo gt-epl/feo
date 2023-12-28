@@ -82,7 +82,8 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	metricCtx := r.offloader.MetricSMInit()
 	var resp *http.Response
 	var ctx *list.Element
-	log.Println("Recv req")
+	appName := strings.Split(req.URL.Path, "/")[6]
+	log.Println("Recv req for applicaton", appName)
 	ctx, localExecution := r.offloader.CheckAndEnq(req)
 
 	if r.offloader.IsOffloaded(req) {
@@ -218,14 +219,25 @@ func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http
 	r.dagMap[dag.Name] = dag
 }
 
-type Item struct {
+type Input struct {
 	Payload interface{} `json:"payload"`
+}
+
+type InputList struct {
+	Inputs []Input `json:"inputs"`
 }
 
 func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http.Request) {
 	dagName := strings.Split(req.URL.Path, "/")[6]
 	log.Println("InvokeDAG with name", dagName)
 	d := r.dagMap[dagName]
+
+	// We assume only one root
+	rootList := d.dag.GetRoots()
+	var rootId string
+	for id := range rootList {
+		rootId = id
+	}
 
 	flowCallback := func(d *dag.DAG, id string, parentResults []dag.FlowResult) (interface{}, error) {
 		v, _ := d.GetVertex(id)
@@ -234,43 +246,44 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 			log.Printf("Error asserting DagVertex type for id %s, %+v\n", id, v)
 			http.Error(w, fmt.Sprintf("Error asserting DagVertex type for id %s\n", id), http.StatusBadGateway)
 		}
+		log.Printf("Handle flowcallback for vertex %s", dv.ID())
 
 		// Concatenate results of parent functions
-		//inputBodies := []Item{}
+		inputList := InputList{
+			Inputs: []Input{},
+		}
 		parentBody := io.NopCloser(strings.NewReader("{}"))
 		// Assume no fan-out, fan-in
 		for _, r := range parentResults {
-			// var item Item
+			log.Printf("Decoding parentresult for %s", r.ID)
+			var item Input
+			if dv.ID() == rootId {
+				continue
+			}
 
-			parentBody, ok = r.Result.(io.ReadCloser)
+			item, ok = r.Result.(Input)
 			if !ok {
 				log.Printf("failed to assert io.ReadCloser for parentBody %+v\n", r.Result)
 			}
+			log.Printf("Result for parent %s is %+v", r.ID, item)
 
-			/*
-				decoder := json.NewDecoder(parentBody)
-				if err := decoder.Decode(&item); err != nil {
-					log.Fatal(err)
-				}
-
-				inputBodies = append(inputBodies, item)
-			*/
+			inputList.Inputs = append(inputList.Inputs, item)
 		}
 
 		// Create input for this function
-		/*
-			newInputBody, err := json.Marshal(inputBodies)
-			if err != nil {
-				log.Fatal(err)
-			}
-			log.Printf("Input body is %+v", newInputBody)
-			newReqBody := io.NopCloser(strings.NewReader(string(newInputBody)))
-		*/
+
+		newInputBody, err := json.Marshal(inputList)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Input body for %s is %+v", dv.ID(), inputList)
+		newReqBody := io.NopCloser(strings.NewReader(string(newInputBody)))
+
 		// Create http request to loop back to feo for this one function
 		client := &http.Client{}
 		template := "http://%s/api/v1/namespaces/guest/actions/%s?blocking=true&result=true"
 		url := fmt.Sprintf(template, req.Host, dv.ActionName)
-		req, err := http.NewRequest("POST", url, parentBody)
+		req, err := http.NewRequest("POST", url, newReqBody)
 		req.Header.Add("Authorization", "Basic MjNiYzQ2YjEtNzFmNi00ZWQ1LThjNTQtODE2YWE0ZjhjNTAyOjEyM3pPM3haQ0xyTU42djJCS0sxZFhZRnBYbFBrY2NPRnFtMTJDZEFzTWdSVTRWck5aOWx5R1ZDR3VNREdJd1A=")
 		req.Header.Add("Content-Type", "application/json")
 
@@ -287,24 +300,35 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 			log.Println("Bad http response", resp.StatusCode)
 			http.Error(w, "Bad http response", resp.StatusCode)
 		}
-		return resp.Body, nil
-	}
 
-	// We assume only one root
-	rootList := d.dag.GetRoots()
-	var rootId string
-	for id := range rootList {
-		rootId = id
+		parentBody, ok = resp.Body.(io.ReadCloser)
+		if !ok {
+			log.Printf("failed to assert io.ReadCloser for resp.Body %+v\n", resp.Body)
+		}
+		decoder := json.NewDecoder(parentBody)
+		var item Input
+		if err := decoder.Decode(&item); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Resp result is %+v", item)
+		return item, nil
 	}
 
 	flowResult, err := d.DescendantsFlow(rootId, nil, flowCallback)
 	if err != nil {
 		http.Error(w, "descendantsflow returned error: "+err.Error(), http.StatusBadRequest)
 	}
-	respBody, ok := flowResult[0].Result.(io.ReadCloser)
+	inputPayload, ok := flowResult[0].Result.(Input)
 	if !ok {
 		log.Printf("failed to assert io.ReadCloser for flowResult %+v\n", flowResult[0])
 	}
+
+	newInputBody, err := json.Marshal(inputPayload)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Final resp  is %+v", inputPayload)
+	respBody := io.NopCloser(strings.NewReader(string(newInputBody)))
 
 	io.Copy(w, respBody)
 	if respBody != nil {
@@ -337,6 +361,7 @@ func (r *requestHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func main() {
 	// client := &http.Client{}
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	var configstr = flag.String("config", "config.yml", "YML config for faas orchestrator")
 	flag.Parse()
 
