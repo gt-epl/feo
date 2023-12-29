@@ -23,28 +23,37 @@ def get_frame(encoded_frame):
     
 def main(args):
     global ssim_threshold
+    response = {"success":False}
+    
 
-    # start = time.time()
+    start = time.time()
     frame = get_frame(args['cur_frame'])
     prev_frame = get_frame(args['prev_frame'])
     # print('decode_time: ', time.time() - start)
 
     # start = time.time()
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+    # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
     # print('preprocess_time: ', time.time() - start)
 
     # start = time.time()
-    (score, diff) = structural_similarity(gray, prev_gray, full=True)
+    # can use this for a realistic setup
+    #(score, diff) = structural_similarity(gray, prev_gray, full=True)
+
+    # to speed up filter
+    score  = np.random.uniform(0,1)
+    ssim_threshold = 0.5
+
     # print('compute_time: ', time.time() - start)
 
     if float(ssim_threshold) < score:
-        return {"success":False}
+        response["elapsed"] = time.time()-start
+        return response
 
-    is_encoded, buffer = cv2.imencode('.jpg', frame)
-    jpg_as_str = base64.b64encode(buffer).decode()
-
-    return {"success":True, "frame":jpg_as_str}
+    response["success"] = True
+    response["frame"] = args['cur_frame']
+    response["elapsed"] = time.time()-start
+    return response
 
 def get_enc(fn):
     with open(fn,'rb') as fh:
@@ -65,5 +74,5 @@ if __name__ == '__main__':
         enc = get_enc(f'{root}/{file}')
         body = {"cur_frame":enc, "prev_frame":prev_enc}
         resp = main(body)
-        print(resp['success'])
+        print(resp['success'], resp['elapsed'])
         prev_enc = enc
