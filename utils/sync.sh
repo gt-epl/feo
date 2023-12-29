@@ -75,7 +75,9 @@ echo "alias,ip" > $IPINFO
 # will consume all of the input from the hostfile and while loop will terminate
 # Instead force file to be read from 9
 while IFS= read -r -u 9 host; do
-  #copy_to_svr $host eth1 #for clab
-  copy_to_svr $host eth0 #for azure
-  #echo $host
+  if [ ! -z "$host" ]; then
+    copy_to_svr $host eth1 #for clab
+    # copy_to_svr $host eth0 #for azure
+    echo $host
+  fi
 done 9< $hostsfile
