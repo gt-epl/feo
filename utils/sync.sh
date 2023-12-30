@@ -65,7 +65,7 @@ cd $FEO_DIR
 # assume ssh config with the aliases present in the hostsfile below 
 # is present on the node which executes the script
 hostsfile=$SCRIPT_DIR/clabhosts.txt
-hostsfile=$SCRIPT_DIR/azhosts.txt
+# hostsfile=$SCRIPT_DIR/azhosts.txt
 
 rm $IPINFO
 echo "alias,ip" > $IPINFO
@@ -76,7 +76,7 @@ echo "alias,ip" > $IPINFO
 # Instead force file to be read from 9
 while IFS= read -r -u 9 host; do
   if [ ! -z "$host" ]; then
-    copy_to_svr $host eth1 #for clab
+    copy_to_svr $host enp6s0f1 #for clab
     # copy_to_svr $host eth0 #for azure
     echo $host
   fi
