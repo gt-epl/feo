@@ -1,0 +1,15 @@
+name: 'video_analytics_pipeline'
+vertices:
+- stage_name: 'filter'
+  action_name: 'filter'
+  downstream_vertices: ['detect']
+- stage_name: 'detect'
+  action_name: 'detect'
+  downstream_vertices: ['annotate', 'sink']
+- stage_name: 'annotate'
+  action_name: 'annotate'
+  downstream_vertices: []
+  should_not_offload: True
+- stage_name: 'sink'
+  action_name: 'sink'
+  downstream_vertices: []
