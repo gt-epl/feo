@@ -249,35 +249,34 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 		log.Printf("Handle flowcallback for vertex %s", dv.ID())
 
 		// Concatenate results of parent functions
-		inputList := InputList{
-			Inputs: []Input{},
-		}
-		parentBody := io.NopCloser(strings.NewReader("{}"))
+		inputBytes := []byte{}
+
 		// Assume no fan-out, fan-in
-		for _, r := range parentResults {
+		for idx, r := range parentResults {
 			log.Printf("Decoding parentresult for %s", r.ID)
-			var item Input
+			var itemBytes []byte
 			if dv.ID() == rootId {
 				continue
 			}
 
-			item, ok = r.Result.(Input)
+			itemBytes, ok = r.Result.([]byte)
 			if !ok {
 				log.Printf("failed to assert io.ReadCloser for parentBody %+v\n", r.Result)
 			}
-			log.Printf("Result for parent %s is %+v", r.ID, item)
+			log.Printf("Result for parent %s is %s, %+v", r.ID, itemBytes, itemBytes)
 
-			inputList.Inputs = append(inputList.Inputs, item)
+			if idx == 0 {
+				inputBytes = append(inputBytes, itemBytes...)
+			} else {
+				inputBytes = append(inputBytes[:len(inputBytes)-1], byte(44))
+				inputBytes = append(inputBytes, itemBytes[1:]...)
+			}
+			log.Printf("inputBytes is now %s, %+v", string(inputBytes), inputBytes)
 		}
 
 		// Create input for this function
 
-		newInputBody, err := json.Marshal(inputList)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Printf("Input body for %s is %+v", dv.ID(), inputList)
-		newReqBody := io.NopCloser(strings.NewReader(string(newInputBody)))
+		newReqBody := io.NopCloser(strings.NewReader(string(inputBytes)))
 		if dv.ID() == rootId {
 			log.Printf("Using provided req body for root id\n")
 			newReqBody = req.Body
@@ -305,34 +304,29 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 			http.Error(w, "Bad http response", resp.StatusCode)
 		}
 
-		parentBody, ok = resp.Body.(io.ReadCloser)
+		parentBody, ok := resp.Body.(io.ReadCloser)
 		if !ok {
 			log.Printf("failed to assert io.ReadCloser for resp.Body %+v\n", resp.Body)
 		}
-		decoder := json.NewDecoder(parentBody)
-		var item Input
-		if err := decoder.Decode(&item); err != nil {
-			log.Fatal(err)
+		result, err := io.ReadAll(parentBody)
+		if err != nil {
+			log.Printf("Cannot read ioreader from response for %s", dv.ID())
 		}
-		log.Printf("Resp result is %+v", item)
-		return item, nil
+		log.Printf("Result for %s is %s", dv.ID(), result)
+		return result, nil
 	}
 
 	flowResult, err := d.DescendantsFlow(rootId, nil, flowCallback)
 	if err != nil {
 		http.Error(w, "descendantsflow returned error: "+err.Error(), http.StatusBadRequest)
 	}
-	inputPayload, ok := flowResult[0].Result.(Input)
+	inputPayload, ok := flowResult[0].Result.([]byte)
 	if !ok {
 		log.Printf("failed to assert io.ReadCloser for flowResult %+v\n", flowResult[0])
 	}
 
-	newInputBody, err := json.Marshal(inputPayload)
-	if err != nil {
-		log.Fatal(err)
-	}
 	log.Printf("Final resp  is %+v", inputPayload)
-	respBody := io.NopCloser(strings.NewReader(string(newInputBody)))
+	respBody := io.NopCloser(strings.NewReader(string(inputPayload)))
 
 	io.Copy(w, respBody)
 	if respBody != nil {
