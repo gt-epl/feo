@@ -278,6 +278,10 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 		}
 		log.Printf("Input body for %s is %+v", dv.ID(), inputList)
 		newReqBody := io.NopCloser(strings.NewReader(string(newInputBody)))
+		if dv.ID() == rootId {
+			log.Printf("Using provided req body for root id\n")
+			newReqBody = req.Body
+		}
 
 		// Create http request to loop back to feo for this one function
 		client := &http.Client{}

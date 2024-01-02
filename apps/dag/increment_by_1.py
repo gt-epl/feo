@@ -1,2 +1,3 @@
 def main(args):
-  return {"payload": 1}
+  number = args.get("number")
+  return {"payload": number}
