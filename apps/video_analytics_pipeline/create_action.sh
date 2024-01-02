@@ -2,25 +2,25 @@
 SCRIPT_DIR=$(dirname "$(realpath $0)")
 HOST_IP=$2 #192.168.10.10, etc. 
 
-wsk action create filter filter/filter.py \
+wsk action create filter $SCRIPT_DIR/filter/filter.py \
   --memory 1024 \
   --docker asarma31/openwhisk-video-analytics-pipeline-base \
 	--apihost http://localhost:3233 \
 	--auth 23bc46b1-71f6-4ed5-8c54-816aa4f8c502:123zO3xZCLrMN6v2BKK1dXYFpXlPkccOFqm12CdAsMgRU4VrNZ9lyGVCGuMDGIwP
 
-wsk action create detect detect/detect.py \
+wsk action create detect $SCRIPT_DIR/detect/detect.py \
   --memory 1024 \
   --docker asarma31/openwhisk-video-analytics-pipeline-base \
 	--apihost http://localhost:3233 \
 	--auth 23bc46b1-71f6-4ed5-8c54-816aa4f8c502:123zO3xZCLrMN6v2BKK1dXYFpXlPkccOFqm12CdAsMgRU4VrNZ9lyGVCGuMDGIwP
 
-wsk action create annotate annotate/annotate.py \
+wsk action create annotate $SCRIPT_DIR/annotate/annotate.py \
   --memory 1024 \
   --docker asarma31/openwhisk-video-analytics-pipeline-base \
 	--apihost http://localhost:3233 \
 	--auth 23bc46b1-71f6-4ed5-8c54-816aa4f8c502:123zO3xZCLrMN6v2BKK1dXYFpXlPkccOFqm12CdAsMgRU4VrNZ9lyGVCGuMDGIwP
 
-wsk action create sink sink/sink.py \
+wsk action create sink $SCRIPT_DIR/sink/sink.py \
   --memory 1024 \
   --docker asarma31/openwhisk-video-analytics-pipeline-base \
 	--apihost http://localhost:3233 \
