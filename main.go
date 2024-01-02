@@ -18,11 +18,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heimdalr/dag"
 	"gopkg.in/yaml.v3"
 )
 
 const RETRY_MAX = 1
+
+// TODO: This assumes that feo's endpoint is fixed. A better parser/http framework is needed to avoid this hardcode
+func extractEntityName(req *http.Request) string {
+	return strings.Split(req.URL.Path, "/")[6]
+}
 
 type requestHandler struct {
 	host      string
@@ -213,121 +217,44 @@ func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http
 	}
 
 	// Process the YAML data as needed
-	fmt.Printf("Received YAML data: %+v\n", newDagManifest)
+	log.Printf("Received YAML data: %+v\n", newDagManifest)
 
 	dag := createDag(newDagManifest)
 	r.dagMap[dag.Name] = dag
 }
 
-type Input struct {
-	Payload interface{} `json:"payload"`
-}
-
-type InputList struct {
-	Inputs []Input `json:"inputs"`
-}
-
 func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http.Request) {
-	dagName := strings.Split(req.URL.Path, "/")[6]
+	// Lookup the DAG from in-memory storage
+	dagName := extractEntityName(req)
 	log.Println("InvokeDAG with name", dagName)
-	d := r.dagMap[dagName]
+	d, ok := r.dagMap[dagName]
+	if !ok {
+		http.Error(w, fmt.Sprintf("DAG with name %s does not exist", dagName), http.StatusNotFound)
+		return
+	}
 
-	// We assume only one root
+	// Find the root vertex
 	rootList := d.dag.GetRoots()
+	if len(rootList) != 1 {
+		http.Error(w, fmt.Sprintf("The DAG %s has %d roots. For now, we only assume 1 root.", dagName, len(rootList)), http.StatusBadRequest)
+		return
+	}
 	var rootId string
 	for id := range rootList {
 		rootId = id
 	}
 
-	flowCallback := func(d *dag.DAG, id string, parentResults []dag.FlowResult) (interface{}, error) {
-		v, _ := d.GetVertex(id)
-		dv, ok := v.(*DagVertex)
-		if !ok {
-			log.Printf("Error asserting DagVertex type for id %s, %+v\n", id, v)
-			http.Error(w, fmt.Sprintf("Error asserting DagVertex type for id %s\n", id), http.StatusBadGateway)
-		}
-		log.Printf("Handle flowcallback for vertex %s", dv.ID())
-
-		// Concatenate results of parent functions
-		inputBytes := []byte{}
-
-		// Assume no fan-out, fan-in
-		for idx, r := range parentResults {
-			log.Printf("Decoding parentresult for %s", r.ID)
-			var itemBytes []byte
-			if dv.ID() == rootId {
-				continue
-			}
-
-			itemBytes, ok = r.Result.([]byte)
-			if !ok {
-				log.Printf("failed to assert io.ReadCloser for parentBody %+v\n", r.Result)
-			}
-			log.Printf("Result for parent %s is %s, %+v", r.ID, itemBytes, itemBytes)
-
-			if idx == 0 {
-				inputBytes = append(inputBytes, itemBytes...)
-			} else {
-				inputBytes = append(inputBytes[:len(inputBytes)-1], byte(44))
-				inputBytes = append(inputBytes, itemBytes[1:]...)
-			}
-			log.Printf("inputBytes is now %s, %+v", string(inputBytes), inputBytes)
-		}
-
-		// Create input for this function
-
-		newReqBody := io.NopCloser(strings.NewReader(string(inputBytes)))
-		if dv.ID() == rootId {
-			log.Printf("Using provided req body for root id\n")
-			newReqBody = req.Body
-		}
-
-		// Create http request to loop back to feo for this one function
-		client := &http.Client{}
-		template := "http://%s/api/v1/namespaces/guest/actions/%s?blocking=true&result=true"
-		url := fmt.Sprintf(template, req.Host, dv.ActionName)
-		req, err := http.NewRequest("POST", url, newReqBody)
-		req.Header.Add("Authorization", "Basic MjNiYzQ2YjEtNzFmNi00ZWQ1LThjNTQtODE2YWE0ZjhjNTAyOjEyM3pPM3haQ0xyTU42djJCS0sxZFhZRnBYbFBrY2NPRnFtMTJDZEFzTWdSVTRWck5aOWx5R1ZDR3VNREdJd1A=")
-		req.Header.Add("Content-Type", "application/json")
-
-		if err != nil {
-			// handle error
-			fmt.Println("Error")
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			//something bad happened
-			log.Printf("local processing of vertex %s returned error %q\n", id, err)
-			http.Error(w, "request to openwhisk returned error: "+err.Error(), http.StatusBadGateway)
-		} else if resp.StatusCode != http.StatusOK {
-			log.Println("Bad http response", resp.StatusCode)
-			http.Error(w, "Bad http response", resp.StatusCode)
-		}
-
-		parentBody, ok := resp.Body.(io.ReadCloser)
-		if !ok {
-			log.Printf("failed to assert io.ReadCloser for resp.Body %+v\n", resp.Body)
-		}
-		result, err := io.ReadAll(parentBody)
-		if err != nil {
-			log.Printf("Cannot read ioreader from response for %s", dv.ID())
-		}
-		log.Printf("Result for %s is %s", dv.ID(), result)
-		return result, nil
-	}
-
-	flowResult, err := d.DescendantsFlow(rootId, nil, flowCallback)
+	// Traverse the DAG starting from the root vertex
+	traverseResultBytes, err := d.TraverseDag(rootId, req)
 	if err != nil {
-		http.Error(w, "descendantsflow returned error: "+err.Error(), http.StatusBadRequest)
-	}
-	inputPayload, ok := flowResult[0].Result.([]byte)
-	if !ok {
-		log.Printf("failed to assert io.ReadCloser for flowResult %+v\n", flowResult[0])
+		log.Printf("Traversing dag %s failed: %s", dagName, err.Error())
+		http.Error(w, fmt.Sprintf("error while traversing the DAG %s: %s", dagName, err.Error()), http.StatusBadRequest)
+		return
 	}
 
-	log.Printf("Final resp  is %+v", inputPayload)
-	respBody := io.NopCloser(strings.NewReader(string(inputPayload)))
-
+	// Marshal the results and write reply
+	log.Printf("Final resp is %s", string(traverseResultBytes))
+	respBody := io.NopCloser(strings.NewReader(string(traverseResultBytes)))
 	io.Copy(w, respBody)
 	if respBody != nil {
 		respBody.Close()
