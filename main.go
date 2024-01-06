@@ -76,6 +76,8 @@ func (o *requestHandler) createProxyReq(originalReq *http.Request, target string
 }
 
 func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *http.Request) {
+
+	metricCtx := r.offloader.MetricSMInit()
 	var resp *http.Response
 	var ctx *list.Element
 	log.Println("Recv req")
@@ -90,6 +92,8 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		w.Header().Set(NodeStatus, stat)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "") //empty response
+		// r.offloader.MetricSMAnalyze(metricCtx)
+		// r.offloader.MetricSMDelete(metricCtx)
 	}
 
 	if !localExecution {
@@ -101,7 +105,12 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 		// Begin OFFLOAD Steps
 		for retry_count := 0; retry_count < RETRY_MAX; retry_count++ {
+
+			// When do we get out of the loop?
+			// Should we break on a successful offload?
+
 			candidate := r.offloader.GetOffloadCandidate(req)
+			r.offloader.MetricSMAdvance(metricCtx, MetricSMState("OFFLOADSEARCH"))
 			if candidate == r.host {
 				localExecution = true
 				break
@@ -111,6 +120,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 			log.Println("[INFO] offload to ", candidate)
 			proxyReq := r.createProxyReq(req, candidate, true)
 			var err error
+			r.offloader.MetricSMAdvance(metricCtx, MetricSMState("PREOFFLOAD"), candidate)
 			resp, err = client.Do(proxyReq)
 			if err != nil {
 				log.Println("[WARN] offload http request failed: ", err)
@@ -129,6 +139,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 				localExecution = !success
 				if success {
 					log.Println("[DEBUG] Successful offload execution")
+					r.offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTOFFLOAD"))
 					break
 				}
 				log.Println("[DEBUG] failed offload execution")
@@ -149,6 +160,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		// conditions: localEnq was successful OR offload failed and forced enq
 		var err error
 		proxyReq := r.createProxyReq(req, r.host, false)
+		r.offloader.MetricSMAdvance(metricCtx, MetricSMState("PRELOCAL"), r.host)
 		resp, err = client.Do(proxyReq)
 		if err != nil {
 			//something bad happened
@@ -156,6 +168,9 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 			http.Error(w, err.Error(), http.StatusBadGateway)
 		} else if resp.StatusCode != http.StatusOK {
 			log.Println("Bad http response", resp.StatusCode)
+		} else {
+			// This is in the critical path.
+			r.offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTLOCAL"))
 		}
 
 		r.offloader.Deq(req, ctx)
@@ -165,12 +180,19 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	}
 
 	log.Printf("Local,Offload=%d,%d\n", local.Load(), offload.Load())
+
 	io.Copy(w, resp.Body)
 	if resp.Body != nil {
 		resp.Body.Close()
 	} else {
 		log.Println("Response is empty!")
 	}
+
+	r.offloader.MetricSMAdvance(metricCtx, MetricSMState("FINAL"))
+
+	r.offloader.MetricSMAnalyze(metricCtx)
+	r.offloader.MetricSMDelete(metricCtx)
+	return
 }
 
 func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http.Request) {

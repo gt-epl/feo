@@ -19,17 +19,32 @@ type router struct {
 type OffloadPolicy string
 
 const (
-	OffloadSuccess = "Offload-Success"
-	NodeStatus     = "Node-Status"
+	OffloadRoundRobin 	= "roundrobin"
+	OffloadRandom     	= "random"
+	OffloadFederated  	= "federated"
+	OffloadCentral    	= "central"
+	OffloadHybrid     	= "hybrid"
+	OffloadImpedence 	= "impedence"
+	RandomProportional 	= "randomproportional"
+	RRLatency 			= "roundrobinlatency"
+	OffloadEpoch		= "epoch"
+)
+
+type MetricSMState string
+
+const (
+	InitState 			= "INIT"
+	PreLocalState		= "PRELOCAL"
+	OffloadSearchState	= "OFFLOADSEARCH"
+	PreOffloadState		= "PREOFFLOAD"
+	PostOffloadState	= "POSTOFFLOAD"
+	PostLocalState		= "POSTLOCAL"
+	FinalState			= "FINAL"
 )
 
 const (
-	OffloadRoundRobin = "roundrobin"
-	OffloadRandom     = "random"
-	OffloadFederated  = "federated"
-	OffloadCentral    = "central"
-	OffloadHybrid     = "hybrid"
-	OffloadEpoch      = "epoch"
+	OffloadSuccess = "Offload-Success"
+	NodeStatus     = "Node-Status"
 )
 
 func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {
@@ -50,6 +65,15 @@ func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {
 	case OffloadCentral:
 		log.Println("[INFO] Selecting Central Offloader")
 		return NewCentralizedOffloader(base)
+	case OffloadImpedence:
+		log.Println("[INFO] Selecting Impedence Offloader")
+		return NewImpedenceOffloader(base)
+	case RandomProportional:
+		log.Println("[INFO] Selecting Radnom Proportional Offloader")
+		return NewRandomPropOffloader(base)
+	case RRLatency:
+		log.Println("[INFO] Selecting Round Robin Latency Offloader")
+		return NewRRLatencyOffloader(base)
 	case OffloadEpoch:
 		log.Println("[INFO] Selecting Epoch Offloader")
 		return NewEpochOffloader(base)
@@ -57,6 +81,23 @@ func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {
 		log.Println("[WARNING] No policy specified. Selecting Base Offloader")
 		return base
 	}
+}
+
+type MetricSM struct {
+	state 			MetricSMState
+
+	init			time.Time
+	preLocal		time.Time
+	offloadSearch	time.Time
+	preOffload		time.Time
+	postOffload		time.Time
+	postLocal		time.Time
+	final			time.Time
+
+	candidate		string
+	local			bool
+	localByDefault	bool
+	localAfterFail	bool
 }
 
 type FunctionInfo struct {
@@ -89,6 +130,10 @@ type OffloaderIntf interface {
 	GetStatusStr() string
 	PostOffloadUpdate(snap Snapshot, target string)
 	Close()
+	MetricSMInit() *list.Element
+	MetricSMAnalyze(ctx *list.Element)
+	MetricSMAdvance(ctx *list.Element, state MetricSMState, candidate ...string)
+	MetricSMDelete(ctx *list.Element)
 }
 
 // TODO: This is single function currently. Provide multi-function support.
@@ -98,6 +143,8 @@ type BaseOffloader struct {
 	RouterList []router
 	Qlen_max   int32
 	config     FeoConfig
+	MetricSMList	*list.List
+	MetricSMMu		sync.Mutex
 }
 
 func NewBaseOffloader(config FeoConfig) *BaseOffloader {
@@ -107,6 +154,7 @@ func NewBaseOffloader(config FeoConfig) *BaseOffloader {
 	}
 	o := BaseOffloader{Host: config.Host, RouterList: routerList, Qlen_max: math.MaxInt32, config: config}
 	o.Finfo.invoke_list = list.New()
+	o.MetricSMList = list.New()
 	return &o
 }
 
@@ -159,6 +207,104 @@ func (o *BaseOffloader) GetStatusStr() string {
 }
 
 func (o *BaseOffloader) Close() {
+
+}
+
+func (o *BaseOffloader) MetricSMInit() *list.Element {
+	metricSM := &MetricSM{}
+	metricSM.init = time.Now()
+	metricSM.state = InitState
+	metricSM.candidate = "default"
+	metricSM.local = false
+	metricSM.localAfterFail = false
+	metricSM.localByDefault = false
+
+	o.MetricSMMu.Lock()
+	defer o.MetricSMMu.Unlock()
+	ctx := o.MetricSMList.PushBack(metricSM)
+	return ctx
+}
+
+func (o *BaseOffloader) MetricSMAdvance(ctx *list.Element, state MetricSMState, candidate ...string) {
+	// NEED ADVANCING LOGIC, SO THAT THE OFFLOADERS CAN USE THE STATE.
+
+	for _,name := range candidate {
+		if (name != "default") {
+			ctx.Value.(*MetricSM).candidate = name
+		}
+	}
+
+	switch(state) {
+	case InitState:
+		ctx.Value.(*MetricSM).state = state
+		ctx.Value.(*MetricSM).init = time.Now()
+	case OffloadSearchState:
+		if (ctx.Value.(*MetricSM).state == InitState) {
+			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).offloadSearch = time.Now()
+		}
+	case PreLocalState:
+		if ((ctx.Value.(*MetricSM).state == InitState) || (ctx.Value.(*MetricSM).state == OffloadSearchState) || (ctx.Value.(*MetricSM).state == PreOffloadState)) {
+			if ((ctx.Value.(*MetricSM).state == InitState)) {
+				ctx.Value.(*MetricSM).localByDefault = true
+			}
+			if ((ctx.Value.(*MetricSM).state == PreOffloadState)) {
+				ctx.Value.(*MetricSM).localAfterFail = true
+			}
+			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).preLocal = time.Now()
+		}
+	case PostLocalState:
+		if (ctx.Value.(*MetricSM).state == PreLocalState) {
+			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).local = true
+			ctx.Value.(*MetricSM).postLocal = time.Now()
+		}
+	case PreOffloadState:
+		if (ctx.Value.(*MetricSM).state == OffloadSearchState) {
+			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).preOffload = time.Now()
+		}
+	case PostOffloadState:
+		if (ctx.Value.(*MetricSM).state == PreOffloadState) {
+			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).local = false
+			ctx.Value.(*MetricSM).postOffload = time.Now()
+		}
+	case FinalState:
+		if ((ctx.Value.(*MetricSM).state == PostOffloadState) || (ctx.Value.(*MetricSM).state == PostLocalState)) {
+			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).final = time.Now()
+		}
+	}
+
+	// Better
+	// switch(ctx.Value.(*MetricSM).state){
+	// case InitState:
+	// 	ctx.Value.(*MetricSM).init = time.Now()
+	// case PreLocalState:
+	// 	ctx.Value.(*MetricSM).preLocal = time.Now()
+	// case OffloadSearchState:
+	// 	ctx.Value.(*MetricSM).offloadSearch = time.Now()
+	// case PreOffloadState:
+	// 	ctx.Value.(*MetricSM).preOffload = time.Now()
+	// case PostOffloadState:
+	// 	ctx.Value.(*MetricSM).postOffload = time.Now()
+	// case PostLocalState:
+	// 	ctx.Value.(*MetricSM).postLocal = time.Now()
+	// case FinalState:
+	// 	ctx.Value.(*MetricSM).final = time.Now()
+	// }
+}
+
+func (o *BaseOffloader) MetricSMAnalyze(ctx *list.Element) {
+	return
+}
+
+func (o *BaseOffloader) MetricSMDelete(ctx *list.Element) {
+	o.MetricSMMu.Lock()
+	defer o.MetricSMMu.Unlock()
+	o.MetricSMList.Remove(ctx)
 
 }
 
