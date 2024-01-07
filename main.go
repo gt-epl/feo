@@ -190,6 +190,15 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 	log.Printf("Local,Offload=%d,%d\n", local.Load(), offload.Load())
 
+	r.offloader.MetricSMAdvance(metricCtx, MetricSMState("FINAL"))
+
+	r.offloader.MetricSMAnalyze(metricCtx)
+
+	timeElapsedInExec := r.offloader.MetricSMElapsed(metricCtx)
+	if (timeElapsedInExec != "") {
+		w.Header().Set("Invoc-Time", timeElapsedInExec)
+	}
+
 	io.Copy(w, resp.Body)
 	if resp.Body != nil {
 		resp.Body.Close()
@@ -197,9 +206,6 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		log.Println("Response is empty!")
 	}
 
-	r.offloader.MetricSMAdvance(metricCtx, MetricSMState("FINAL"))
-
-	r.offloader.MetricSMAnalyze(metricCtx)
 	r.offloader.MetricSMDelete(metricCtx)
 	return
 }

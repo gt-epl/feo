@@ -197,6 +197,7 @@ func (o *RRLatencyOffloader) MetricSMAnalyze(ctx *list.Element) {
 		} else {
 			timeElapsed = ctx.Value.(*MetricSM).postOffload.Sub(ctx.Value.(*MetricSM).preOffload)
 		}
+		ctx.Value.(*MetricSM).elapsed = timeElapsed
 
 		if (ctx.Value.(*MetricSM).localAfterFail || ctx.Value.(*MetricSM).localByDefault) {
 			log.Println("[DEBUG] Local candidate not chosen by GetOffloadCandidate, no further analysis.")

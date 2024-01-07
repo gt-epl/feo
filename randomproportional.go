@@ -108,11 +108,17 @@ func (o *RandomPropOffloader) GetOffloadCandidate(req *http.Request) string {
 func (o *RandomPropOffloader) MetricSMAnalyze(ctx *list.Element) {
 
 	var timeElapsed time.Duration
-	if (ctx.Value.(*MetricSM).state == FinalState) {
+	if ((ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default")) {
 		if (ctx.Value.(*MetricSM).local) {
 			timeElapsed = ctx.Value.(*MetricSM).postLocal.Sub(ctx.Value.(*MetricSM).preLocal)
 		} else {
 			timeElapsed = ctx.Value.(*MetricSM).postOffload.Sub(ctx.Value.(*MetricSM).preOffload)
+		}
+		ctx.Value.(*MetricSM).elapsed = timeElapsed
+
+		if (ctx.Value.(*MetricSM).localAfterFail || ctx.Value.(*MetricSM).localByDefault) {
+			log.Println("[DEBUG] Local candidate not chosen by GetOffloadCandidate, no further analysis.")
+			return
 		}
 
 		if (ctx.Value.(*MetricSM).candidate != "default") {
