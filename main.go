@@ -23,6 +23,11 @@ import (
 
 const RETRY_MAX = 1
 
+// TODO: This assumes that feo's endpoint is fixed. A better parser/http framework is needed to avoid this hardcode
+func extractEntityName(req *http.Request) string {
+	return strings.Split(req.URL.Path, "/")[6]
+}
+
 type requestHandler struct {
 	host      string
 	offloader OffloaderIntf
@@ -81,7 +86,8 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	metricCtx := r.offloader.MetricSMInit()
 	var resp *http.Response
 	var ctx *list.Element
-	log.Println("Recv req")
+	appName := strings.Split(req.URL.Path, "/")[6]
+	log.Println("Recv req for applicaton", appName)
 	ctx, localExecution := r.offloader.CheckAndEnq(req)
 
 	if r.offloader.IsOffloaded(req) {
@@ -211,17 +217,54 @@ func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http
 	}
 
 	// Process the YAML data as needed
-	fmt.Printf("Received YAML data: %+v\n", newDagManifest)
+	log.Printf("Received YAML data: %+v\n", newDagManifest)
 
 	dag := createDag(newDagManifest)
 	r.dagMap[dag.Name] = dag
 }
 
 func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http.Request) {
-	log.Println("InvokeDAG")
+	// Lookup the DAG from in-memory storage
+	dagName := extractEntityName(req)
+	log.Println("InvokeDAG with name", dagName)
+	d, ok := r.dagMap[dagName]
+	if !ok {
+		http.Error(w, fmt.Sprintf("DAG with name %s does not exist", dagName), http.StatusNotFound)
+		return
+	}
+
+	// Find the root vertex
+	rootList := d.dag.GetRoots()
+	if len(rootList) != 1 {
+		http.Error(w, fmt.Sprintf("The DAG %s has %d roots. For now, we only assume 1 root.", dagName, len(rootList)), http.StatusBadRequest)
+		return
+	}
+	var rootId string
+	for id := range rootList {
+		rootId = id
+	}
+
+	// Traverse the DAG starting from the root vertex
+	traverseResultBytes, err := d.TraverseDag(rootId, req)
+	if err != nil {
+		log.Printf("Traversing dag %s failed: %s", dagName, err.Error())
+		http.Error(w, fmt.Sprintf("error while traversing the DAG %s: %s", dagName, err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	// Marshal the results and write reply
+	log.Printf("Final resp is %s", string(traverseResultBytes))
+	respBody := io.NopCloser(strings.NewReader(string(traverseResultBytes)))
+	io.Copy(w, respBody)
+	if respBody != nil {
+		respBody.Close()
+	} else {
+		log.Println("Response is empty!")
+	}
 }
 
 func (r *requestHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	log.Println("Receive request!")
 	// Check the URL path and call the appropriate function based on the endpoint
 	switch {
 	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/actions/"):
@@ -243,6 +286,7 @@ func (r *requestHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func main() {
 	// client := &http.Client{}
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	var configstr = flag.String("config", "config.yml", "YML config for faas orchestrator")
 	flag.Parse()
 

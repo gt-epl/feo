@@ -2,7 +2,7 @@ name: 'testDagApp'
 vertices:
 - stage_name: 'incrementBy1'
   action_name: 'incrementBy1'
-  downstream_vertices: ['incrementBy2', 'incrementBy3']
+  downstream_vertices: ['incrementBy2','incrementBy3']
 - stage_name: 'incrementBy2'
   action_name: 'incrementBy2'
   downstream_vertices: ['incrementBy4']
