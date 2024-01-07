@@ -94,6 +94,8 @@ type MetricSM struct {
 	postLocal		time.Time
 	final			time.Time
 
+	elapsed			time.Duration
+
 	candidate		string
 	local			bool
 	localByDefault	bool
@@ -133,6 +135,7 @@ type OffloaderIntf interface {
 	MetricSMInit() *list.Element
 	MetricSMAnalyze(ctx *list.Element)
 	MetricSMAdvance(ctx *list.Element, state MetricSMState, candidate ...string)
+	MetricSMElapsed(ctx *list.Element) string
 	MetricSMDelete(ctx *list.Element)
 }
 
@@ -308,6 +311,14 @@ func (o *BaseOffloader) MetricSMDelete(ctx *list.Element) {
 	defer o.MetricSMMu.Unlock()
 	o.MetricSMList.Remove(ctx)
 
+}
+
+func (o *BaseOffloader) MetricSMElapsed(ctx *list.Element) string {
+	if ((ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default")) {
+		return ctx.Value.(*MetricSM).elapsed.String()
+	} else {
+		return ""
+	}
 }
 
 func (o *BaseOffloader) PostOffloadUpdate(snap Snapshot, targte string) {

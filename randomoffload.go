@@ -7,6 +7,7 @@ import (
 
 	// Should we use crypto/rand instead? Latency will probably be higher.
 	"math/rand"
+	"time"
 )
 
 type RandomOffloader struct {
@@ -35,4 +36,17 @@ func (o *RandomOffloader) GetOffloadCandidate(req *http.Request) string {
 	o.cur_idx = rand.Intn(100) % total_nodes
 	candidate := o.RouterList[o.cur_idx].host
 	return candidate
+}
+
+func (o *RandomOffloader) MetricSMAnalyze(ctx *list.Element) {
+
+	var timeElapsed time.Duration
+	if ((ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default")) {
+		if (ctx.Value.(*MetricSM).local) {
+			timeElapsed = ctx.Value.(*MetricSM).postLocal.Sub(ctx.Value.(*MetricSM).preLocal)
+		} else {
+			timeElapsed = ctx.Value.(*MetricSM).postOffload.Sub(ctx.Value.(*MetricSM).preOffload)
+		}
+		ctx.Value.(*MetricSM).elapsed = timeElapsed
+	}
 }

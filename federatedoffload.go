@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"container/list"
 	"log"
 	"net/http"
 	"sync"
@@ -112,4 +113,17 @@ func (o *FederatedOffloader) PostOffloadUpdate(snap Snapshot, target string) {
 	o.mapMu.Lock()
 	defer o.mapMu.Unlock()
 	o.qlenMap[target] = snap.Qlen
+}
+
+func (o *FederatedOffloader) MetricSMAnalyze(ctx *list.Element) {
+
+	var timeElapsed time.Duration
+	if ((ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default")) {
+		if (ctx.Value.(*MetricSM).local) {
+			timeElapsed = ctx.Value.(*MetricSM).postLocal.Sub(ctx.Value.(*MetricSM).preLocal)
+		} else {
+			timeElapsed = ctx.Value.(*MetricSM).postOffload.Sub(ctx.Value.(*MetricSM).preOffload)
+		}
+		ctx.Value.(*MetricSM).elapsed = timeElapsed
+	}
 }
