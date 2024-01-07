@@ -8,7 +8,7 @@ while read line
 do
    # parse the in input with `jq`
    ms="$(echo $line | jq -r .value.ms)"
-   ./fibtest -s $ms > out 2>&1
+   ./fibtest -s $ms -t 1 > out 2>&1
    resp=$(cat out)
    # log in stdout
    #echo msg="hello $name"

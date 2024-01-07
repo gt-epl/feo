@@ -163,7 +163,9 @@ func (o *BaseOffloader) CheckAndEnq(req *http.Request) (*list.Element, bool) {
 	o.Finfo.mu.Lock()
 	defer o.Finfo.mu.Unlock()
 	log.Println("[DEBUG ]qlen: ", o.Finfo.invoke_list.Len())
+	log.Println("[DEBUG] qlen_max", int(o.Qlen_max))
 	if o.Finfo.invoke_list.Len() < int(o.Qlen_max) {
+		log.Println("[DEBUG] inside if branch", int(o.Qlen_max))
 		return o.Finfo.invoke_list.PushBack(time.Now()), true
 	} else {
 		return nil, false

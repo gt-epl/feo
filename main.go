@@ -174,8 +174,10 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		}
 
 		r.offloader.Deq(req, ctx)
+		w.Header().Set("Invoc-Loc", "Local")
 		local.Add(1)
 	} else {
+		w.Header().Set("Invoc-Loc", "Offload")
 		offload.Add(1)
 	}
 
