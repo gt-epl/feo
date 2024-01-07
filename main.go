@@ -29,9 +29,12 @@ func extractEntityName(req *http.Request) string {
 }
 
 type requestHandler struct {
-	host      string
-	offloader OffloaderIntf
-	dagMap    map[string]*FaasEdgeDag
+	host      		string
+	// offloader 		OffloaderIntf
+	config 			FeoConfig
+	policy			OffloadPolicy
+	offloaderMap	map[string]OffloaderIntf
+	dagMap    		map[string]*FaasEdgeDag
 }
 
 var local, offload atomic.Int32
@@ -83,17 +86,24 @@ func (o *requestHandler) createProxyReq(originalReq *http.Request, target string
 
 func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *http.Request) {
 
-	metricCtx := r.offloader.MetricSMInit()
 	var resp *http.Response
 	var ctx *list.Element
 	appName := strings.Split(req.URL.Path, "/")[6]
-	log.Println("Recv req for applicaton", appName)
-	ctx, localExecution := r.offloader.CheckAndEnq(req)
+	_, ok := r.offloaderMap[appName]
 
-	if r.offloader.IsOffloaded(req) {
+	if !ok {
+		r.offloaderMap[appName] = OffloadFactory(r.policy, r.config)
+	}
+
+	metricCtx := r.offloaderMap[appName].MetricSMInit()
+
+	log.Println("Recv req for applicaton", appName)
+	ctx, localExecution := r.offloaderMap[appName].CheckAndEnq(req)
+
+	if r.offloaderMap[appName].IsOffloaded(req) {
 		//set offloadee header details
 		w.Header().Set("Content-Type", "application/json")
-		stat := r.offloader.GetStatusStr()
+		stat := r.offloaderMap[appName].GetStatusStr()
 		log.Println("[DEBUG] offload status ack=", stat)
 		w.Header().Set(OffloadSuccess, strconv.FormatBool(localExecution))
 		w.Header().Set(NodeStatus, stat)
@@ -106,7 +116,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	if !localExecution {
 
 		//disallow nested offloads
-		if r.offloader.IsOffloaded(req) {
+		if r.offloaderMap[appName].IsOffloaded(req) {
 			return
 		}
 
@@ -116,8 +126,8 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 			// When do we get out of the loop?
 			// Should we break on a successful offload?
 
-			candidate := r.offloader.GetOffloadCandidate(req)
-			r.offloader.MetricSMAdvance(metricCtx, MetricSMState("OFFLOADSEARCH"))
+			candidate := r.offloaderMap[appName].GetOffloadCandidate(req)
+			r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("OFFLOADSEARCH"))
 			if candidate == r.host {
 				localExecution = true
 				break
@@ -127,7 +137,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 			log.Println("[INFO] offload to ", candidate)
 			proxyReq := r.createProxyReq(req, candidate, true)
 			var err error
-			r.offloader.MetricSMAdvance(metricCtx, MetricSMState("PREOFFLOAD"), candidate)
+			r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("PREOFFLOAD"), candidate)
 			resp, err = client.Do(proxyReq)
 			if err != nil {
 				log.Println("[WARN] offload http request failed: ", err)
@@ -146,17 +156,17 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 				localExecution = !success
 				if success {
 					log.Println("[DEBUG] Successful offload execution")
-					r.offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTOFFLOAD"))
+					r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("POSTOFFLOAD"))
 					break
 				}
 				log.Println("[DEBUG] failed offload execution")
-				r.offloader.PostOffloadUpdate(snap, candidate)
+				r.offloaderMap[appName].PostOffloadUpdate(snap, candidate)
 			}
 		}
 
 		// Cannot find a node to offload. Execute locally
 		if localExecution {
-			ctx = r.offloader.ForceEnq(req)
+			ctx = r.offloaderMap[appName].ForceEnq(req)
 		}
 	}
 
@@ -167,7 +177,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		// conditions: localEnq was successful OR offload failed and forced enq
 		var err error
 		proxyReq := r.createProxyReq(req, r.host, false)
-		r.offloader.MetricSMAdvance(metricCtx, MetricSMState("PRELOCAL"), r.host)
+		r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("PRELOCAL"), r.host)
 		resp, err = client.Do(proxyReq)
 		if err != nil {
 			//something bad happened
@@ -177,10 +187,10 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 			log.Println("Bad http response", resp.StatusCode)
 		} else {
 			// This is in the critical path.
-			r.offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTLOCAL"))
+			r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("POSTLOCAL"))
 		}
 
-		r.offloader.Deq(req, ctx)
+		r.offloaderMap[appName].Deq(req, ctx)
 		w.Header().Set("Invoc-Loc", "Local")
 		local.Add(1)
 	} else {
@@ -190,11 +200,11 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 	log.Printf("Local,Offload=%d,%d\n", local.Load(), offload.Load())
 
-	r.offloader.MetricSMAdvance(metricCtx, MetricSMState("FINAL"))
+	r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("FINAL"))
 
-	r.offloader.MetricSMAnalyze(metricCtx)
+	r.offloaderMap[appName].MetricSMAnalyze(metricCtx)
 
-	timeElapsedInExec := r.offloader.MetricSMElapsed(metricCtx)
+	timeElapsedInExec := r.offloaderMap[appName].MetricSMElapsed(metricCtx)
 	if (timeElapsedInExec != "") {
 		w.Header().Set("Invoc-Time", timeElapsedInExec)
 	}
@@ -206,7 +216,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		log.Println("Response is empty!")
 	}
 
-	r.offloader.MetricSMDelete(metricCtx)
+	r.offloaderMap[appName].MetricSMDelete(metricCtx)
 	return
 }
 
@@ -318,16 +328,19 @@ func main() {
 	}
 
 	//TODO: use gflags instead of os.Args
-	policy := OffloadPolicy(config.Policy.Name)
-	cur_offloader := OffloadFactory(policy, config)
+	// policy := OffloadPolicy(config.Policy.Name)
+	// cur_offloader := OffloadFactory(policy, config)
 
 	s := &http.Server{
 		Addr:           config.Host,
-		Handler:        &requestHandler{offloader: cur_offloader, host: config.Host, dagMap: map[string]*FaasEdgeDag{}},
+		Handler:        &requestHandler{policy: OffloadPolicy(config.Policy.Name), config: config, offloaderMap: map[string]OffloaderIntf{}, host: config.Host, dagMap: map[string]*FaasEdgeDag{}},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 	log.Fatal(s.ListenAndServe())
-	cur_offloader.Close()
+	// cur_offloader.Close()
+	for _, offloader := range (s.Handler).(*requestHandler).offloaderMap {
+		offloader.Close()
+	}
 }
