@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,8 @@ type DagVertex struct {
 	ActionName         string   `yaml:"action_name"`
 	DownstreamVertices []string `yaml:"downstream_vertices"`
 	ShouldNotOffload   bool     `yaml:"should_not_offload"`
+	ConditionalKey     string   `yaml:"conditional_key"`
+	ConditionalValue   bool     `yaml:"conditional_value"`
 }
 
 type DagManifest struct {
@@ -70,8 +73,17 @@ func composeReqBody(vertexID, rootID string, req *http.Request, parentFlowResult
 	return newReqBody
 }
 
+const CONDITIONAL_STOP = "CONDITIONAL_STOP"
+
 func (d *FaasEdgeDag) TraverseDag(rootID string, req *http.Request) ([]byte, error) {
 	vertexCallback := func(d *dag.DAG, vertexID string, parentResults []dag.FlowResult) (interface{}, error) {
+		for _, pr := range parentResults {
+			if pr.Error != nil && strings.Contains(pr.Error.Error(), CONDITIONAL_STOP) {
+				log.Printf("Parent %s saw a conditional stop \n", pr.ID)
+				return pr.Result, pr.Error
+			}
+		}
+
 		v, _ := d.GetVertex(vertexID)
 		dv, ok := v.(*DagVertex)
 		if !ok {
@@ -108,13 +120,33 @@ func (d *FaasEdgeDag) TraverseDag(rootID string, req *http.Request) ([]byte, err
 		if err != nil {
 			return nil, fmt.Errorf("Cannot create io.Reader from functionOutput for %s", vertexID)
 		}
-		//log.Printf("Result for %s is %s", dv.ID(), functionOutput)
+
+		if dv.ConditionalKey != "" {
+			var functionOutputJson map[string]interface{}
+			var cond_test_value bool
+			err := json.Unmarshal(functionOutput, &functionOutputJson)
+			if err != nil {
+				return nil, fmt.Errorf("Cannot unmarshal output for %s into empty interface: %s", vertexID, err.Error())
+			}
+			cond_test_value, ok = functionOutputJson[dv.ConditionalKey].(bool)
+			if !ok || cond_test_value != dv.ConditionalValue {
+				log.Printf("Conditional check skip triggered ok %t, cond_test_value %t\n", ok, cond_test_value)
+				return functionOutput, fmt.Errorf(CONDITIONAL_STOP)
+			}
+		}
+
 		return functionOutput, nil
 	}
 
 	traverseResults, err := d.dag.DescendantsFlow(rootID, nil, vertexCallback)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, tr := range traverseResults {
+		if tr.Error != nil && !strings.Contains(tr.Error.Error(), CONDITIONAL_STOP) {
+			return nil, fmt.Errorf("Vertex %s saw error %s:", tr.ID, tr.Error.Error())
+		}
 	}
 
 	finalResultPayload := appendFlowResults(traverseResults)
