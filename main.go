@@ -22,6 +22,8 @@ import (
 )
 
 const RETRY_MAX = 1
+const APP1 = "fibtest"
+const APP2 = "fibtest2"
 
 // TODO: This assumes that feo's endpoint is fixed. A better parser/http framework is needed to avoid this hardcode
 func extractEntityName(req *http.Request) string {
@@ -35,15 +37,19 @@ type requestHandler struct {
 	policy			OffloadPolicy
 	offloaderMap	map[string]OffloaderIntf
 	dagMap    		map[string]*FaasEdgeDag
+
+	app1Chan		chan string
+	app2Chan		chan string
 }
 
 var local, offload atomic.Int32
 
 var client http.Client
 
-func (o *requestHandler) createProxyReq(originalReq *http.Request, target string, isOffload bool) *http.Request {
+func (o *requestHandler) createProxyReq(originalReq *http.Request, target string, isOffload bool, port string) *http.Request {
 	ODMN_PORT := "9696"
-	FAAS_PORT := "3233"
+	// FAAS_PORT := "3233"
+	FAAS_PORT := port
 
 	var newHost string
 	ip := strings.Split(target, ":")[0]
@@ -135,7 +141,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 			localExecution = false
 			log.Println("[INFO] offload to ", candidate)
-			proxyReq := r.createProxyReq(req, candidate, true)
+			proxyReq := r.createProxyReq(req, candidate, true, "0" /*Doesn't matter in the case of offload*/)
 			var err error
 			r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("PREOFFLOAD"), candidate)
 			resp, err = client.Do(proxyReq)
@@ -175,10 +181,40 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		log.Println("Forwarding to local FaaS Node")
 		// self local processing
 		// conditions: localEnq was successful OR offload failed and forced enq
-		var err error
-		proxyReq := r.createProxyReq(req, r.host, false)
+
+		// Since in a FaaS Platform, choosing the candidate container would add to the POSTLOCAL-PRELOCAL latency.
 		r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("PRELOCAL"), r.host)
+
+		var port string
+		if (appName == APP1) {
+			select {
+			case msg := <-r.app1Chan:
+				port = msg
+			}
+		} else if (appName == APP2) {
+			select {
+			case msg := <-r.app2Chan:
+				port = msg
+			}
+		} else {
+			r.offloaderMap[appName].MetricSMDelete(metricCtx)
+			log.Println("Unknown application")
+			http.Error(w, "Unknown application", http.StatusBadGateway)
+			return
+		}
+		
+		proxyReq := r.createProxyReq(req, r.host, false, port)
+
+		var err error
 		resp, err = client.Do(proxyReq)
+
+		if (appName == APP1) {
+			r.app1Chan <- port
+		} else {
+			// Can't be an unknown application.
+			r.app2Chan <- port
+		}
+
 		if err != nil {
 			//something bad happened
 			log.Println("local processing returned error", err)
@@ -306,6 +342,10 @@ func main() {
 	// client := &http.Client{}
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	var configstr = flag.String("config", "config.yml", "YML config for faas orchestrator")
+	port1str := flag.String("port1", "9000", "Starting port for first application")
+	count1str := flag.String("count1", "10", "Number of containers for first application")
+	port2str := flag.String("port2", "9010", "Starting port for second application")
+	count2str := flag.String("count2", "10", "Number of containers for second application")
 	flag.Parse()
 
 	f, err := os.ReadFile(*configstr)
@@ -316,6 +356,23 @@ func main() {
 	if err := yaml.Unmarshal(f, &config); err != nil {
 		log.Fatal(err)
 	}
+	port1,err := strconv.Atoi(*port1str)
+	if err != nil {
+		log.Fatal(err)
+	}
+	count1,err := strconv.Atoi(*count1str)
+	if err != nil {
+		log.Fatal(err)
+	}
+	port2,err := strconv.Atoi(*port2str)
+	if err != nil {
+		log.Fatal(err)
+	}
+	count2,err := strconv.Atoi(*count2str)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 
 	//telemetry
 	local.Store(0)
@@ -331,9 +388,21 @@ func main() {
 	// policy := OffloadPolicy(config.Policy.Name)
 	// cur_offloader := OffloadFactory(policy, config)
 
+	app1Chan := make(chan string, count1)
+	app2Chan := make(chan string, count2)
+
+	for i:=0; i<count1; i++ {
+		app1Chan <- strconv.Itoa(port1+i)
+	}
+	for i:=0; i<count2; i++ {
+		app2Chan <- strconv.Itoa(port2+i)
+	}
+
+	log.Println("Added elements to channels.")
+
 	s := &http.Server{
 		Addr:           config.Host,
-		Handler:        &requestHandler{policy: OffloadPolicy(config.Policy.Name), config: config, offloaderMap: map[string]OffloaderIntf{}, host: config.Host, dagMap: map[string]*FaasEdgeDag{}},
+		Handler:        &requestHandler{policy: OffloadPolicy(config.Policy.Name), config: config, offloaderMap: map[string]OffloaderIntf{}, host: config.Host, dagMap: map[string]*FaasEdgeDag{}, app1Chan: app1Chan, app2Chan: app2Chan},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
