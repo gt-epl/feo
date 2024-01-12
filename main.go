@@ -22,8 +22,6 @@ import (
 )
 
 const RETRY_MAX = 1
-const APP1 = "fibtest"
-const APP2 = "fibtest2"
 
 // TODO: This assumes that feo's endpoint is fixed. A better parser/http framework is needed to avoid this hardcode
 func extractEntityName(req *http.Request) string {
@@ -31,15 +29,12 @@ func extractEntityName(req *http.Request) string {
 }
 
 type requestHandler struct {
-	host      		string
+	host string
 	// offloader 		OffloaderIntf
-	config 			FeoConfig
-	policy			OffloadPolicy
-	offloaderMap	map[string]OffloaderIntf
-	dagMap    		map[string]*FaasEdgeDag
-
-	app1Chan		chan string
-	app2Chan		chan string
+	config         FeoConfig
+	policy         OffloadPolicy
+	dagMap         map[string]*FaasEdgeDag
+	applicationMap map[string]*Application
 }
 
 var local, offload atomic.Int32
@@ -90,26 +85,60 @@ func (o *requestHandler) createProxyReq(originalReq *http.Request, target string
 	return upstreamReq
 }
 
+func (r *requestHandler) handleRegisterActionRequest(w http.ResponseWriter, req *http.Request) {
+	// curl -X PUT 'http://localhost:9696/api/v1/namespaces/guest/actions/test?initPort=9000&numReplicas=10'
+	appName := strings.Split(req.URL.Path, "/")[6]
+	if appName == "" {
+		http.Error(w, fmt.Sprintf("appName not present in URL Path: %q", req.URL.Path), http.StatusBadRequest)
+	}
+
+	queryParams := req.URL.Query()
+	initPortNumberStr := queryParams.Get("initPort")
+	initPortNumber, err := strconv.Atoi(initPortNumberStr)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("initPort %q is not a valid integer", initPortNumberStr), http.StatusBadRequest)
+	}
+
+	numReplicasStr := queryParams.Get("numReplicas")
+	numReplicas, err := strconv.Atoi(numReplicasStr)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("numReplicas %q is not a valid integer", numReplicasStr), http.StatusBadRequest)
+	}
+
+	offloader := OffloadFactory(r.policy, r.config)
+
+	// Note, calling this request multiple times for the same appName will result in a completely new offloader & portChan created.
+	app := createApplication(appName, initPortNumber, numReplicas, offloader)
+	r.applicationMap[appName] = app
+	log.Printf("Created Or Updated application %s", appName)
+}
+
 func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *http.Request) {
 
 	var resp *http.Response
 	var ctx *list.Element
 	appName := strings.Split(req.URL.Path, "/")[6]
-	_, ok := r.offloaderMap[appName]
-
+	app, ok := r.applicationMap[appName]
 	if !ok {
-		r.offloaderMap[appName] = OffloadFactory(r.policy, r.config)
+		http.Error(w, fmt.Sprintf("Application %s does not exist", appName), http.StatusNotFound)
 	}
 
-	metricCtx := r.offloaderMap[appName].MetricSMInit()
+	if app.offloader == nil {
+		log.Fatalf("Offloader is null for app %s", appName)
+		r.applicationMap[appName].offloader = OffloadFactory(r.policy, r.config)
+	}
+
+	offloader := app.offloader
+
+	metricCtx := offloader.MetricSMInit()
 
 	log.Println("Recv req for applicaton", appName)
-	ctx, localExecution := r.offloaderMap[appName].CheckAndEnq(req)
+	ctx, localExecution := offloader.CheckAndEnq(req)
 
-	if r.offloaderMap[appName].IsOffloaded(req) {
+	if offloader.IsOffloaded(req) {
 		//set offloadee header details
 		w.Header().Set("Content-Type", "application/json")
-		stat := r.offloaderMap[appName].GetStatusStr()
+		stat := offloader.GetStatusStr()
 		log.Println("[DEBUG] offload status ack=", stat)
 		w.Header().Set(OffloadSuccess, strconv.FormatBool(localExecution))
 		w.Header().Set(NodeStatus, stat)
@@ -122,7 +151,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	if !localExecution {
 
 		//disallow nested offloads
-		if r.offloaderMap[appName].IsOffloaded(req) {
+		if offloader.IsOffloaded(req) {
 			return
 		}
 
@@ -132,8 +161,8 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 			// When do we get out of the loop?
 			// Should we break on a successful offload?
 
-			candidate := r.offloaderMap[appName].GetOffloadCandidate(req)
-			r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("OFFLOADSEARCH"))
+			candidate := offloader.GetOffloadCandidate(req)
+			offloader.MetricSMAdvance(metricCtx, MetricSMState("OFFLOADSEARCH"))
 			if candidate == r.host {
 				localExecution = true
 				break
@@ -143,7 +172,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 			log.Println("[INFO] offload to ", candidate)
 			proxyReq := r.createProxyReq(req, candidate, true, "0" /*Doesn't matter in the case of offload*/)
 			var err error
-			r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("PREOFFLOAD"), candidate)
+			offloader.MetricSMAdvance(metricCtx, MetricSMState("PREOFFLOAD"), candidate)
 			resp, err = client.Do(proxyReq)
 			if err != nil {
 				log.Println("[WARN] offload http request failed: ", err)
@@ -162,17 +191,17 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 				localExecution = !success
 				if success {
 					log.Println("[DEBUG] Successful offload execution")
-					r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("POSTOFFLOAD"))
+					offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTOFFLOAD"))
 					break
 				}
 				log.Println("[DEBUG] failed offload execution")
-				r.offloaderMap[appName].PostOffloadUpdate(snap, candidate)
+				offloader.PostOffloadUpdate(snap, candidate)
 			}
 		}
 
 		// Cannot find a node to offload. Execute locally
 		if localExecution {
-			ctx = r.offloaderMap[appName].ForceEnq(req)
+			ctx = offloader.ForceEnq(req)
 		}
 	}
 
@@ -183,37 +212,20 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		// conditions: localEnq was successful OR offload failed and forced enq
 
 		// Since in a FaaS Platform, choosing the candidate container would add to the POSTLOCAL-PRELOCAL latency.
-		r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("PRELOCAL"), r.host)
+		offloader.MetricSMAdvance(metricCtx, MetricSMState("PRELOCAL"), r.host)
 
 		var port string
-		if (appName == APP1) {
-			select {
-			case msg := <-r.app1Chan:
-				port = msg
-			}
-		} else if (appName == APP2) {
-			select {
-			case msg := <-r.app2Chan:
-				port = msg
-			}
-		} else {
-			r.offloaderMap[appName].MetricSMDelete(metricCtx)
-			log.Println("Unknown application")
-			http.Error(w, "Unknown application", http.StatusBadGateway)
-			return
+		select {
+		case msg := <-app.portChan:
+			port = msg
 		}
-		
+
 		proxyReq := r.createProxyReq(req, r.host, false, port)
 
 		var err error
 		resp, err = client.Do(proxyReq)
 
-		if (appName == APP1) {
-			r.app1Chan <- port
-		} else {
-			// Can't be an unknown application.
-			r.app2Chan <- port
-		}
+		app.portChan <- port
 
 		if err != nil {
 			//something bad happened
@@ -223,10 +235,10 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 			log.Println("Bad http response", resp.StatusCode)
 		} else {
 			// This is in the critical path.
-			r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("POSTLOCAL"))
+			offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTLOCAL"))
 		}
 
-		r.offloaderMap[appName].Deq(req, ctx)
+		offloader.Deq(req, ctx)
 		w.Header().Set("Invoc-Loc", "Local")
 		local.Add(1)
 	} else {
@@ -236,12 +248,12 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 	log.Printf("Local,Offload=%d,%d\n", local.Load(), offload.Load())
 
-	r.offloaderMap[appName].MetricSMAdvance(metricCtx, MetricSMState("FINAL"))
+	offloader.MetricSMAdvance(metricCtx, MetricSMState("FINAL"))
 
-	r.offloaderMap[appName].MetricSMAnalyze(metricCtx)
+	offloader.MetricSMAnalyze(metricCtx)
 
-	timeElapsedInExec := r.offloaderMap[appName].MetricSMElapsed(metricCtx)
-	if (timeElapsedInExec != "") {
+	timeElapsedInExec := offloader.MetricSMElapsed(metricCtx)
+	if timeElapsedInExec != "" {
 		w.Header().Set("Invoc-Time", timeElapsedInExec)
 	}
 
@@ -252,7 +264,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		log.Println("Response is empty!")
 	}
 
-	r.offloaderMap[appName].MetricSMDelete(metricCtx)
+	offloader.MetricSMDelete(metricCtx)
 	return
 }
 
@@ -322,7 +334,12 @@ func (r *requestHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Check the URL path and call the appropriate function based on the endpoint
 	switch {
 	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/actions/"):
-		r.handleInvokeActionRequest(w, req)
+		switch req.Method {
+		case "PUT":
+			r.handleRegisterActionRequest(w, req)
+		case "POST":
+			r.handleInvokeActionRequest(w, req)
+		}
 	case strings.HasPrefix(req.URL.Path, "/api/v1/namespaces/guest/dag/"):
 		switch req.Method {
 		// Best practice would be to use 'POST' to upload/create a dag. However, for now, we use POST for invoking, to match with single action invoke.
@@ -342,10 +359,6 @@ func main() {
 	// client := &http.Client{}
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	var configstr = flag.String("config", "config.yml", "YML config for faas orchestrator")
-	port1str := flag.String("port1", "9000", "Starting port for first application")
-	count1str := flag.String("count1", "10", "Number of containers for first application")
-	port2str := flag.String("port2", "9010", "Starting port for second application")
-	count2str := flag.String("count2", "10", "Number of containers for second application")
 	flag.Parse()
 
 	f, err := os.ReadFile(*configstr)
@@ -356,23 +369,6 @@ func main() {
 	if err := yaml.Unmarshal(f, &config); err != nil {
 		log.Fatal(err)
 	}
-	port1,err := strconv.Atoi(*port1str)
-	if err != nil {
-		log.Fatal(err)
-	}
-	count1,err := strconv.Atoi(*count1str)
-	if err != nil {
-		log.Fatal(err)
-	}
-	port2,err := strconv.Atoi(*port2str)
-	if err != nil {
-		log.Fatal(err)
-	}
-	count2,err := strconv.Atoi(*count2str)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 
 	//telemetry
 	local.Store(0)
@@ -388,28 +384,16 @@ func main() {
 	// policy := OffloadPolicy(config.Policy.Name)
 	// cur_offloader := OffloadFactory(policy, config)
 
-	app1Chan := make(chan string, count1)
-	app2Chan := make(chan string, count2)
-
-	for i:=0; i<count1; i++ {
-		app1Chan <- strconv.Itoa(port1+i)
-	}
-	for i:=0; i<count2; i++ {
-		app2Chan <- strconv.Itoa(port2+i)
-	}
-
-	log.Println("Added elements to channels.")
-
 	s := &http.Server{
 		Addr:           config.Host,
-		Handler:        &requestHandler{policy: OffloadPolicy(config.Policy.Name), config: config, offloaderMap: map[string]OffloaderIntf{}, host: config.Host, dagMap: map[string]*FaasEdgeDag{}, app1Chan: app1Chan, app2Chan: app2Chan},
+		Handler:        &requestHandler{policy: OffloadPolicy(config.Policy.Name), config: config, applicationMap: map[string]*Application{}, host: config.Host, dagMap: map[string]*FaasEdgeDag{}},
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 	log.Fatal(s.ListenAndServe())
 	// cur_offloader.Close()
-	for _, offloader := range (s.Handler).(*requestHandler).offloaderMap {
-		offloader.Close()
+	for _, app := range (s.Handler).(*requestHandler).applicationMap {
+		app.offloader.Close()
 	}
 }
