@@ -39,10 +39,12 @@ copy_to_svr() {
 
   ## onetime only
   if [ ! -z "$DoUtils" ]; then
-    echo "[.] copy onetime utils and apps"
-    rsync utils/custom.conf $svr:~/
+    echo "[.] not copying the apps since we do not need them"
+    echo "[.] copying utils only"
+    # echo "[.] copy onetime utils and apps"
+    # rsync utils/custom.conf $svr:~/
     rsync -avz utils $svr:~/
-    rsync -avz apps $svr:~/
+    # rsync -avz apps $svr:~/
   fi
 
   echo "---"
