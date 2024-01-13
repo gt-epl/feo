@@ -75,7 +75,7 @@ func composeReqBody(vertexID, rootID string, req *http.Request, parentFlowResult
 
 const CONDITIONAL_STOP = "CONDITIONAL_STOP"
 
-func (d *FaasEdgeDag) TraverseDag(rootID string, req *http.Request) ([]byte, error) {
+func (d *FaasEdgeDag) TraverseDag(rootID string, w http.ResponseWriter, req *http.Request) ([]byte, error) {
 	vertexCallback := func(d *dag.DAG, vertexID string, parentResults []dag.FlowResult) (interface{}, error) {
 		for _, pr := range parentResults {
 			if pr.Error != nil && strings.Contains(pr.Error.Error(), CONDITIONAL_STOP) {
@@ -120,6 +120,10 @@ func (d *FaasEdgeDag) TraverseDag(rootID string, req *http.Request) ([]byte, err
 		if err != nil {
 			return nil, fmt.Errorf("Cannot create io.Reader from functionOutput for %s", vertexID)
 		}
+
+		// Set execution time
+		invocTime := resp.Header.Get("Invoc-Time")
+		w.Header().Set(fmt.Sprintf("Invoc-Time-%s", vertexID), invocTime)
 
 		if dv.ConditionalKey != "" {
 			var functionOutputJson map[string]interface{}

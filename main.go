@@ -311,7 +311,7 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 	}
 
 	// Traverse the DAG starting from the root vertex
-	traverseResultBytes, err := d.TraverseDag(rootId, req)
+	traverseResultBytes, err := d.TraverseDag(rootId, w, req)
 	if err != nil {
 		log.Printf("Traversing dag %s failed: %s", dagName, err.Error())
 		http.Error(w, fmt.Sprintf("error while traversing the DAG %s: %s", dagName, err.Error()), http.StatusBadRequest)
