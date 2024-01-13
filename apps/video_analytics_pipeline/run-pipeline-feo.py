@@ -32,5 +32,8 @@ for file in files[1:]:
     prev_enc = enc
     resp = json.loads(response.text)
     print(resp)
+    for key, value in response.headers.items():
+        if "Invoc-Time" in key:
+            print(key, ' : ', value)
     if not resp['success']:
         continue
