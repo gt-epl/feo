@@ -29,6 +29,10 @@ for file in files[1:]:
     start = time.time()
     response = requests.post(feo_dag_url, data=body, headers=headers)
     print('pipeline: ', time.time()-start)
+
+    if not response.ok:
+        print(f"Error: {response.status_code}, {response.text}")
+        break
     prev_enc = enc
     resp = json.loads(response.text)
     print(resp)
