@@ -3,6 +3,8 @@ vertices:
 - stage_name: 'filter'
   action_name: 'filter'
   downstream_vertices: ['detect']
+  conditional_key: 'success'
+  conditional_value: True
 - stage_name: 'detect'
   action_name: 'detect'
   downstream_vertices: ['annotate', 'sink']
