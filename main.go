@@ -206,6 +206,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	}
 
 	// NOTE: this is not as an "else" block because local execution is possible despite taking the first branch
+	var port string
 	if localExecution {
 		log.Println("Forwarding to local FaaS Node")
 		// self local processing
@@ -214,7 +215,6 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		// Since in a FaaS Platform, choosing the candidate container would add to the POSTLOCAL-PRELOCAL latency.
 		offloader.MetricSMAdvance(metricCtx, MetricSMState("PRELOCAL"), r.host)
 
-		var port string
 		select {
 		case msg := <-app.portChan:
 			port = msg
@@ -224,8 +224,6 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 		var err error
 		resp, err = client.Do(proxyReq)
-
-		app.portChan <- port
 
 		if err != nil {
 			//something bad happened
@@ -262,6 +260,10 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		resp.Body.Close()
 	} else {
 		log.Println("Response is empty!")
+	}
+
+	if (localExecution){
+		app.portChan <- port
 	}
 
 	offloader.MetricSMDelete(metricCtx)
