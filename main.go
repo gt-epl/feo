@@ -125,7 +125,12 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 	if app.offloader == nil {
 		log.Fatalf("Offloader is null for app %s", appName)
-		r.applicationMap[appName].offloader = OffloadFactory(r.policy, r.config)
+
+		if (appName == "fiblocal2") {
+			r.applicationMap[appName].offloader = OffloadFactory("base", r.config)
+		} else{
+			r.applicationMap[appName].offloader = OffloadFactory(r.policy, r.config)
+		}	
 	}
 
 	offloader := app.offloader
