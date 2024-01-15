@@ -38,7 +38,7 @@ func NewFederatedOffloader(base *BaseOffloader) *FederatedOffloader {
 }
 
 func (o *FederatedOffloader) update_qlen() {
-	defer o.wg.Done()
+	// defer o.wg.Done()
 
 	cur_qlen := o.Finfo.getSnapshot().Qlen
 
