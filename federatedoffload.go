@@ -25,7 +25,7 @@ type FederatedOffloader struct {
 
 func NewFederatedOffloader(base *BaseOffloader) *FederatedOffloader {
 	fed := &FederatedOffloader{cur_idx: 0, BaseOffloader: base}
-	fed.Qlen_max = 4
+	fed.Qlen_max = 2
 	log.Println("[DEBUG] qlen_max = ", fed.Qlen_max)
 	fed.qlenMap = make(map[string]float32)
 	for _, r := range fed.RouterList {
@@ -33,7 +33,7 @@ func NewFederatedOffloader(base *BaseOffloader) *FederatedOffloader {
 	}
 
 	fed.wg.Add(1)
-	go fed.stateUpdateRoutine()
+	//go fed.stateUpdateRoutine()
 	return fed
 }
 
@@ -45,20 +45,34 @@ func (o *FederatedOffloader) update_qlen() {
 	o.qlenMu.Lock()
 	o.qlen = 0.2*o.qlen + 0.8*float32(cur_qlen)
 	o.qlenMu.Unlock()
+	return
 }
 
 func (o *FederatedOffloader) CheckAndEnq(req *http.Request) (*list.Element, bool) {
 	log.Println("[DEBUG] in checkAndEnq")
+	appname := extractEntityName(req)
 
-	var cur_qlen float32
+	var historic_qlen float32
 	o.qlenMu.RLock()
-	cur_qlen = o.qlen
+	historic_qlen = o.qlen
 	o.qlenMu.RUnlock()
 
+	var instantaneous_qlen float32
+	instantaneous_qlen = o.Finfo.getSnapshot().Qlen
+
+	log.Printf("[DEBUG ] %s Instantaneous qlen: %f, historic qlen: %f\n", appname, instantaneous_qlen, historic_qlen)
 	o.Finfo.mu.Lock()
 	defer o.Finfo.mu.Unlock()
-	log.Println("[DEBUG ]qlen: ", cur_qlen)
+
+	isOffloaded := o.IsOffloaded(req)
+	cur_qlen := instantaneous_qlen
+	if isOffloaded {
+		cur_qlen = historic_qlen
+	}
+
+	log.Println("[DEBUG ] qlen: ", cur_qlen)
 	log.Println("[DEBUG] qlen_max", int(o.Qlen_max))
+	go o.update_qlen()
 	if int(cur_qlen) < int(o.Qlen_max) {
 		log.Println("[DEBUG] inside if branch", int(o.Qlen_max))
 		return o.Finfo.invoke_list.PushBack(time.Now()), true
