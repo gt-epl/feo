@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/heimdalr/dag"
@@ -38,7 +40,7 @@ type FaasEdgeDag struct {
 // e.g.)
 // Input: [`{"name": "John Doe"}`, `{"age": 42}`]    (type [][]byte)
 // Output: `{"name": "John Doe", "age": 42}`         (type []byte)
-func appendFlowResults(flowResults []dag.FlowResult) []byte {
+func appendFlowResults(flowResults []dag.FlowResult) ([]byte, error) {
 	result := []byte{}
 
 	for idx, r := range flowResults {
@@ -46,7 +48,7 @@ func appendFlowResults(flowResults []dag.FlowResult) []byte {
 		var itemBytes []byte
 		itemBytes, ok := r.Result.([]byte)
 		if !ok {
-			log.Printf("failed to assert io.ReadCloser for parentBody %+v\n", r.Result)
+			return nil, fmt.Errorf("failed to assert io.ReadCloser for parentBody %+v\n", r.Result)
 		}
 		if idx == 0 {
 			result = append(result, itemBytes...)
@@ -57,20 +59,25 @@ func appendFlowResults(flowResults []dag.FlowResult) []byte {
 		}
 	}
 
-	return result
+	return result, nil
 }
 
-func composeReqBody(vertexID, rootID string, req *http.Request, parentFlowResults []dag.FlowResult) io.ReadCloser {
+func composeReqBody(vertexID, rootID string, req *http.Request, parentFlowResults []dag.FlowResult) (*bytes.Buffer, int, error) {
 	// Concatenate results of parent functions
 	if vertexID == rootID {
 		log.Printf("Using provided req body for root id\n")
-		return req.Body
+		bodyBytes, _ := io.ReadAll(req.Body)
+		newBody := bytes.NewBuffer(bodyBytes)
+		return newBody, len(bodyBytes), nil
 	}
 
 	// Create input for this function
-	parentOutputsByte := appendFlowResults(parentFlowResults)
-	newReqBody := io.NopCloser(strings.NewReader(string(parentOutputsByte)))
-	return newReqBody
+	parentOutputsByte, err := appendFlowResults(parentFlowResults)
+	if err != nil {
+		return nil, 0, err
+	}
+	newReqBody := bytes.NewBuffer(parentOutputsByte)
+	return newReqBody, len(parentOutputsByte), nil
 }
 
 const CONDITIONAL_STOP = "CONDITIONAL_STOP"
@@ -95,13 +102,17 @@ func (d *FaasEdgeDag) TraverseDag(rootID string, w http.ResponseWriter, req *htt
 		client := &http.Client{}
 		urlTemplate := "http://%s/api/v1/namespaces/guest/actions/%s?blocking=true&result=true"
 		url := fmt.Sprintf(urlTemplate, req.Host, dv.ActionName)
-		functionInputBody := composeReqBody(vertexID, rootID, req, parentResults)
+		functionInputBody, contentLength, err := composeReqBody(vertexID, rootID, req, parentResults)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create req body for %s: %s", vertexID, err.Error())
+		}
 		invokeReq, err := http.NewRequest("POST", url, functionInputBody)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create httprequest for %s: %s", vertexID, err.Error())
 		}
 		invokeReq.Header.Add("Authorization", "Basic MjNiYzQ2YjEtNzFmNi00ZWQ1LThjNTQtODE2YWE0ZjhjNTAyOjEyM3pPM3haQ0xyTU42djJCS0sxZFhZRnBYbFBrY2NPRnFtMTJDZEFzTWdSVTRWck5aOWx5R1ZDR3VNREdJd1A=")
 		invokeReq.Header.Add("Content-Type", "application/json")
+		invokeReq.Header.Add("Content-Length", strconv.Itoa(contentLength))
 
 		// Launch request
 		resp, err := client.Do(invokeReq)
@@ -153,7 +164,10 @@ func (d *FaasEdgeDag) TraverseDag(rootID string, w http.ResponseWriter, req *htt
 		}
 	}
 
-	finalResultPayload := appendFlowResults(traverseResults)
+	finalResultPayload, err := appendFlowResults(traverseResults)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apend flow result: %s", err.Error())
+	}
 	return finalResultPayload, nil
 }
 

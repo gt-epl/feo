@@ -72,6 +72,7 @@ func (o *requestHandler) createProxyReq(originalReq *http.Request, target string
 
 	upstreamReq, err := http.NewRequest(originalReq.Method, url.String(), newBody)
 	upstreamReq.Header = originalReq.Header
+	upstreamReq.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
 
 	if isOffload {
 		upstreamReq.Header.Set("X-Offloaded-For", o.host)
@@ -229,8 +230,12 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 			//something bad happened
 			log.Println("local processing returned error", err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
 		} else if resp.StatusCode != http.StatusOK {
-			log.Println("Bad http response", resp.StatusCode)
+			respmsg, _ := io.ReadAll(resp.Body)
+			log.Println(fmt.Sprintf("Bad http response: %s", string(respmsg)), resp.StatusCode)
+			http.Error(w, fmt.Sprintf("Bad http response: %s", string(respmsg)), resp.StatusCode)
+			return
 		} else {
 			// This is in the critical path.
 			offloader.MetricSMAdvance(metricCtx, MetricSMState("POSTLOCAL"))
