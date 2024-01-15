@@ -1,8 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"container/list"
+	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
@@ -25,7 +25,7 @@ type FederatedOffloader struct {
 
 func NewFederatedOffloader(base *BaseOffloader) *FederatedOffloader {
 	fed := &FederatedOffloader{cur_idx: 0, BaseOffloader: base}
-	fed.Qlen_max = 2
+	fed.Qlen_max = 4
 	log.Println("[DEBUG] qlen_max = ", fed.Qlen_max)
 	fed.qlenMap = make(map[string]float32)
 	for _, r := range fed.RouterList {
@@ -45,6 +45,26 @@ func (o *FederatedOffloader) update_qlen() {
 	o.qlenMu.Lock()
 	o.qlen = 0.2*o.qlen + 0.8*float32(cur_qlen)
 	o.qlenMu.Unlock()
+}
+
+func (o *FederatedOffloader) CheckAndEnq(req *http.Request) (*list.Element, bool) {
+	log.Println("[DEBUG] in checkAndEnq")
+
+	var cur_qlen float32
+	o.qlenMu.RLock()
+	cur_qlen = o.qlen
+	o.qlenMu.RUnlock()
+
+	o.Finfo.mu.Lock()
+	defer o.Finfo.mu.Unlock()
+	log.Println("[DEBUG ]qlen: ", cur_qlen)
+	log.Println("[DEBUG] qlen_max", int(o.Qlen_max))
+	if int(cur_qlen) < int(o.Qlen_max) {
+		log.Println("[DEBUG] inside if branch", int(o.Qlen_max))
+		return o.Finfo.invoke_list.PushBack(time.Now()), true
+	} else {
+		return nil, false
+	}
 }
 
 func (o *FederatedOffloader) stateUpdateRoutine() {
@@ -118,8 +138,8 @@ func (o *FederatedOffloader) PostOffloadUpdate(snap Snapshot, target string) {
 func (o *FederatedOffloader) MetricSMAnalyze(ctx *list.Element) {
 
 	var timeElapsed time.Duration
-	if ((ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default")) {
-		if (ctx.Value.(*MetricSM).local) {
+	if (ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default") {
+		if ctx.Value.(*MetricSM).local {
 			timeElapsed = ctx.Value.(*MetricSM).postLocal.Sub(ctx.Value.(*MetricSM).preLocal)
 		} else {
 			timeElapsed = ctx.Value.(*MetricSM).postOffload.Sub(ctx.Value.(*MetricSM).preOffload)
