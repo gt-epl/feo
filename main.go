@@ -21,7 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const RETRY_MAX = 6
+const RETRY_MAX = 1
 
 // TODO: This assumes that feo's endpoint is fixed. A better parser/http framework is needed to avoid this hardcode
 func extractEntityName(req *http.Request) string {
