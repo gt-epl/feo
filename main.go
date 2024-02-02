@@ -106,7 +106,12 @@ func (r *requestHandler) handleRegisterActionRequest(w http.ResponseWriter, req 
 		http.Error(w, fmt.Sprintf("numReplicas %q is not a valid integer", numReplicasStr), http.StatusBadRequest)
 	}
 
-	offloader := OffloadFactory(r.policy, r.config)
+	var offloader OffloaderIntf
+	if appName == "fiblocal2" {
+		offloader = OffloadFactory("base", r.config)
+	} else {
+		offloader = OffloadFactory(r.policy, r.config)
+	}
 
 	// Note, calling this request multiple times for the same appName will result in a completely new offloader & portChan created.
 	app := createApplication(appName, initPortNumber, numReplicas, offloader)
@@ -126,7 +131,12 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 	if app.offloader == nil {
 		log.Fatalf("Offloader is null for app %s", appName)
-		r.applicationMap[appName].offloader = OffloadFactory(r.policy, r.config)
+
+		if (appName == "fiblocal2") {
+			r.applicationMap[appName].offloader = OffloadFactory("base", r.config)
+		} else{
+			r.applicationMap[appName].offloader = OffloadFactory(r.policy, r.config)
+		}	
 	}
 
 	offloader := app.offloader
@@ -161,9 +171,13 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 			// When do we get out of the loop?
 			// Should we break on a successful offload?
-
+			offloader.MetricSMAdvance(metricCtx, MetricSMState("PREOFFLOADSEARCH"))
 			candidate := offloader.GetOffloadCandidate(req)
 			offloader.MetricSMAdvance(metricCtx, MetricSMState("OFFLOADSEARCH"))
+
+			getCandidateTime := metricCtx.Value.(*MetricSM).offloadSearch.Sub(metricCtx.Value.(*MetricSM).preOffloadSearch).String()
+			w.Header().Set("Get-Candidate", getCandidateTime)
+
 			if candidate == r.host {
 				localExecution = true
 				break
@@ -197,6 +211,8 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 				}
 				log.Println("[DEBUG] failed offload execution")
 				offloader.PostOffloadUpdate(snap, candidate)
+
+				// w.Header().Set("Offload-Reject", "1")
 			}
 		}
 
