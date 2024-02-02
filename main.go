@@ -21,7 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const RETRY_MAX = 1
+const RETRY_MAX = 6
 
 // TODO: This assumes that feo's endpoint is fixed. A better parser/http framework is needed to avoid this hardcode
 func extractEntityName(req *http.Request) string {
@@ -105,7 +105,12 @@ func (r *requestHandler) handleRegisterActionRequest(w http.ResponseWriter, req 
 		http.Error(w, fmt.Sprintf("numReplicas %q is not a valid integer", numReplicasStr), http.StatusBadRequest)
 	}
 
-	offloader := OffloadFactory(r.policy, r.config)
+	var offloader OffloaderIntf
+	if appName == "fiblocal2" {
+		offloader = OffloadFactory("base", r.config)
+	} else {
+		offloader = OffloadFactory(r.policy, r.config)
+	}
 
 	// Note, calling this request multiple times for the same appName will result in a completely new offloader & portChan created.
 	app := createApplication(appName, initPortNumber, numReplicas, offloader)
@@ -165,9 +170,13 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 			// When do we get out of the loop?
 			// Should we break on a successful offload?
-
+			offloader.MetricSMAdvance(metricCtx, MetricSMState("PREOFFLOADSEARCH"))
 			candidate := offloader.GetOffloadCandidate(req)
 			offloader.MetricSMAdvance(metricCtx, MetricSMState("OFFLOADSEARCH"))
+
+			getCandidateTime := metricCtx.Value.(*MetricSM).offloadSearch.Sub(metricCtx.Value.(*MetricSM).preOffloadSearch).String()
+			w.Header().Set("Get-Candidate", getCandidateTime)
+
 			if candidate == r.host {
 				localExecution = true
 				break
@@ -201,6 +210,8 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 				}
 				log.Println("[DEBUG] failed offload execution")
 				offloader.PostOffloadUpdate(snap, candidate)
+
+				// w.Header().Set("Offload-Reject", "1")
 			}
 		}
 

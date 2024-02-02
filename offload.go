@@ -33,13 +33,14 @@ const (
 type MetricSMState string
 
 const (
-	InitState 			= "INIT"
-	PreLocalState		= "PRELOCAL"
-	OffloadSearchState	= "OFFLOADSEARCH"
-	PreOffloadState		= "PREOFFLOAD"
-	PostOffloadState	= "POSTOFFLOAD"
-	PostLocalState		= "POSTLOCAL"
-	FinalState			= "FINAL"
+	InitState 				= "INIT"
+	PreLocalState			= "PRELOCAL"
+	OffloadSearchState		= "OFFLOADSEARCH"
+	PreOffloadState			= "PREOFFLOAD"
+	PostOffloadState		= "POSTOFFLOAD"
+	PostLocalState			= "POSTLOCAL"
+	FinalState				= "FINAL"
+	PreOffloadSearchState 	= "PREOFFLOADSEARCH"
 )
 
 const (
@@ -84,22 +85,23 @@ func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {
 }
 
 type MetricSM struct {
-	state 			MetricSMState
+	state 				MetricSMState
 
-	init			time.Time
-	preLocal		time.Time
-	offloadSearch	time.Time
-	preOffload		time.Time
-	postOffload		time.Time
-	postLocal		time.Time
-	final			time.Time
+	init				time.Time
+	preLocal			time.Time
+	offloadSearch		time.Time
+	preOffloadSearch	time.Time
+	preOffload			time.Time
+	postOffload			time.Time
+	postLocal			time.Time
+	final				time.Time
 
-	elapsed			time.Duration
+	elapsed				time.Duration
 
-	candidate		string
-	local			bool
-	localByDefault	bool
-	localAfterFail	bool
+	candidate			string
+	local				bool
+	localByDefault		bool
+	localAfterFail		bool
 }
 
 type FunctionInfo struct {
@@ -165,7 +167,7 @@ func (o *BaseOffloader) CheckAndEnq(req *http.Request) (*list.Element, bool) {
 	log.Println("[DEBUG] in checkAndEnq")
 	o.Finfo.mu.Lock()
 	defer o.Finfo.mu.Unlock()
-	log.Println("[DEBUG ]qlen: ", o.Finfo.invoke_list.Len())
+	log.Println("[DEBUG ]	: ", o.Finfo.invoke_list.Len())
 	log.Println("[DEBUG] qlen_max", int(o.Qlen_max))
 	if o.Finfo.invoke_list.Len() < int(o.Qlen_max) {
 		log.Println("[DEBUG] inside if branch", int(o.Qlen_max))
@@ -243,8 +245,13 @@ func (o *BaseOffloader) MetricSMAdvance(ctx *list.Element, state MetricSMState, 
 	case InitState:
 		ctx.Value.(*MetricSM).state = state
 		ctx.Value.(*MetricSM).init = time.Now()
-	case OffloadSearchState:
+	case PreOffloadSearchState:
 		if (ctx.Value.(*MetricSM).state == InitState) {
+			ctx.Value.(*MetricSM).state = state
+			ctx.Value.(*MetricSM).preOffloadSearch = time.Now()
+		}
+	case OffloadSearchState:
+		if (ctx.Value.(*MetricSM).state == PreOffloadSearchState) {
 			ctx.Value.(*MetricSM).state = state
 			ctx.Value.(*MetricSM).offloadSearch = time.Now()
 		}
