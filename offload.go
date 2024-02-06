@@ -131,6 +131,7 @@ type OffloaderIntf interface {
 	GetOffloadCandidate(req *http.Request) string
 	GetStatusStr() string
 	PostOffloadUpdate(snap Snapshot, target string)
+	SetMaxQlen(maxQlen int32)
 	Close()
 	MetricSMInit() *list.Element
 	MetricSMAnalyze(ctx *list.Element)
@@ -209,6 +210,12 @@ func (o *BaseOffloader) GetStatusStr() string {
 		log.Println("[WARNING] could not marshall status: ", err)
 	}
 	return string(jbytes)
+}
+
+func (o *BaseOffloader) SetMaxQlen(maxQlen int32) {
+	pastQlen := o.Qlen_max
+	o.Qlen_max = maxQlen
+	log.Printf("[DEBUG] qlen_max changed from %d to %d\n", pastQlen, maxQlen)
 }
 
 func (o *BaseOffloader) Close() {
