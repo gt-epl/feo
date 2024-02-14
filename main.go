@@ -146,6 +146,9 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 	log.Println("Recv req for applicaton", appName)
 	ctx, localExecution := offloader.CheckAndEnq(req)
+	snap := offloader.GetSnapshot(req)
+	w.Header().Set("InstQLEN", strconv.FormatInt(int64(snap.Qlen), 10))
+	w.Header().Set("HistQLEN", strconv.FormatFloat(float64(snap.HistoricQlen), 'E', -1, 32))
 
 	if offloader.IsOffloaded(req) {
 		//set offloadee header details
@@ -211,6 +214,7 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 					break
 				}
 				log.Println("[DEBUG] failed offload execution")
+				w.Header().Set("OffloadReject", "true")
 				offloader.PostOffloadUpdate(snap, candidate)
 
 				// w.Header().Set("Offload-Reject", "1")
@@ -233,10 +237,12 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		// Since in a FaaS Platform, choosing the candidate container would add to the POSTLOCAL-PRELOCAL latency.
 		offloader.MetricSMAdvance(metricCtx, MetricSMState("PRELOCAL"), r.host)
 
-		select {
-		case msg := <-app.portChan:
-			port = msg
-		}
+		// select {
+
+		// case msg := <-app.portChan:
+		// 	port = msg
+		// }
+		port = <-app.portChan
 
 		proxyReq := r.createProxyReq(req, r.host, false, port)
 
@@ -284,12 +290,11 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		log.Println("Response is empty!")
 	}
 
-	if (localExecution){
+	if localExecution {
 		app.portChan <- port
 	}
 
 	offloader.MetricSMDelete(metricCtx)
-	return
 }
 
 func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http.Request) {
