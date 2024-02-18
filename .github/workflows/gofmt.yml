@@ -2,7 +2,6 @@ name: Gofmt
 
 on:
   pull_request:
-    types: [opened, reopened, edited]
     paths:
       - '**.go'
 
