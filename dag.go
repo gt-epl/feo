@@ -44,11 +44,11 @@ func appendFlowResults(flowResults []dag.FlowResult) ([]byte, error) {
 	result := []byte{}
 
 	for idx, r := range flowResults {
-		log.Printf("Decoding parentresult for %s", r.ID)
+		log.Printf("Decoding result of function  %s", r.ID)
 		var itemBytes []byte
 		itemBytes, ok := r.Result.([]byte)
 		if !ok {
-			return nil, fmt.Errorf("failed to assert io.ReadCloser for parentBody %+v\n", r.Result)
+			return nil, fmt.Errorf("failed to assert []byte for parent %s\n", r.ID)
 		}
 		if idx == 0 {
 			result = append(result, itemBytes...)
@@ -62,13 +62,12 @@ func appendFlowResults(flowResults []dag.FlowResult) ([]byte, error) {
 	return result, nil
 }
 
-func composeReqBody(vertexID, rootID string, req *http.Request, parentFlowResults []dag.FlowResult) (*bytes.Buffer, int, error) {
+func composeReqBody(vertexID, rootID string, req *http.Request, parentFlowResults []dag.FlowResult) ([]byte, int, error) {
 	// Concatenate results of parent functions
 	if vertexID == rootID {
 		log.Printf("Using provided req body for root id\n")
 		bodyBytes, _ := io.ReadAll(req.Body)
-		newBody := bytes.NewBuffer(bodyBytes)
-		return newBody, len(bodyBytes), nil
+		return bodyBytes, len(bodyBytes), nil
 	}
 
 	// Create input for this function
@@ -76,8 +75,7 @@ func composeReqBody(vertexID, rootID string, req *http.Request, parentFlowResult
 	if err != nil {
 		return nil, 0, err
 	}
-	newReqBody := bytes.NewBuffer(parentOutputsByte)
-	return newReqBody, len(parentOutputsByte), nil
+	return parentOutputsByte, len(parentOutputsByte), nil
 }
 
 const CONDITIONAL_STOP = "CONDITIONAL_STOP"
@@ -102,10 +100,11 @@ func (d *FaasEdgeDag) TraverseDag(rootID string, w http.ResponseWriter, req *htt
 		client := &http.Client{}
 		urlTemplate := "http://%s/api/v1/namespaces/guest/actions/%s?blocking=true&result=true"
 		url := fmt.Sprintf(urlTemplate, req.Host, dv.ActionName)
-		functionInputBody, contentLength, err := composeReqBody(vertexID, rootID, req, parentResults)
+		functionInputBytes, contentLength, err := composeReqBody(vertexID, rootID, req, parentResults)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create req body for %s: %s", vertexID, err.Error())
 		}
+		functionInputBody := bytes.NewBuffer(functionInputBytes)
 		invokeReq, err := http.NewRequest("POST", url, functionInputBody)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create httprequest for %s: %s", vertexID, err.Error())
@@ -113,12 +112,18 @@ func (d *FaasEdgeDag) TraverseDag(rootID string, w http.ResponseWriter, req *htt
 		invokeReq.Header.Add("Authorization", "Basic MjNiYzQ2YjEtNzFmNi00ZWQ1LThjNTQtODE2YWE0ZjhjNTAyOjEyM3pPM3haQ0xyTU42djJCS0sxZFhZRnBYbFBrY2NPRnFtMTJDZEFzTWdSVTRWck5aOWx5R1ZDR3VNREdJd1A=")
 		invokeReq.Header.Add("Content-Type", "application/json")
 		invokeReq.Header.Add("Content-Length", strconv.Itoa(contentLength))
+		invokeReq.TransferEncoding = []string{"identity"}
+		invokeReq.Header.Add("Transfer-Encoding", "identity")
 
 		// Launch request
 		resp, err := client.Do(invokeReq)
 		if err != nil {
+			log.Printf("looped request for vertex %s returned error: %s", vertexID, err.Error())
+			panic(nil)
 			return nil, fmt.Errorf("looped request for vertex %s returned error: %s", vertexID, err.Error())
 		} else if resp.StatusCode != http.StatusOK {
+			log.Printf("bad http response for vertex %s %d", vertexID, resp.StatusCode)
+			panic(nil)
 			return nil, fmt.Errorf("bad http response for vertex %s %d", vertexID, resp.StatusCode)
 		}
 
@@ -135,6 +140,12 @@ func (d *FaasEdgeDag) TraverseDag(rootID string, w http.ResponseWriter, req *htt
 		// Set execution time
 		invocTime := resp.Header.Get("Invoc-Time")
 		w.Header().Set(fmt.Sprintf("Invoc-Time-%s", vertexID), invocTime)
+		invocLoc := resp.Header.Get("Invoc-Loc")
+		w.Header().Set(fmt.Sprintf("Invoc-Loc-%s", vertexID), invocLoc)
+		instQueueDepth := resp.Header.Get("InstQLEN")
+		w.Header().Set(fmt.Sprintf("Invoc-Queue-Depth-%s", vertexID), instQueueDepth)
+		histQueueDepth := resp.Header.Get("HistQLEN")
+		w.Header().Set(fmt.Sprintf("Invoc-Historic-Depth-%s", vertexID), histQueueDepth)
 
 		if dv.ConditionalKey != "" {
 			var functionOutputJson map[string]interface{}

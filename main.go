@@ -13,6 +13,7 @@ import (
 
 	"flag"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"strings"
@@ -39,7 +40,9 @@ type requestHandler struct {
 
 var local, offload atomic.Int32
 
-var client http.Client
+var client = http.Client{
+	Timeout: 20 * time.Second,
+}
 
 func (o *requestHandler) createProxyReq(originalReq *http.Request, target string, isOffload bool, port string) *http.Request {
 	ODMN_PORT := "9696"
@@ -66,13 +69,16 @@ func (o *requestHandler) createProxyReq(originalReq *http.Request, target string
 	//NOTE: why do this? Because you can only read the body once, therefore you read it completely and store it in a buffer and repopulate the req body. source: https://stackoverflow.com/questions/43021058/golang-read-request-body-multiple-times
 
 	bodyBytes, _ := io.ReadAll(originalReq.Body)
-	newBody := io.NopCloser(bytes.NewBuffer(bodyBytes))
+	newBody := bytes.NewBuffer(bodyBytes)
 	originalReq.Body.Close() //  must close
 	originalReq.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	upstreamReq, err := http.NewRequest(originalReq.Method, url.String(), newBody)
 	upstreamReq.Header = originalReq.Header
 	upstreamReq.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
+	upstreamReq.Header.Add("Transfer-Encoding", "identity")
+	upstreamReq.TransferEncoding = []string{"identity"}
+	upstreamReq.ContentLength = originalReq.ContentLength
 
 	if isOffload {
 		upstreamReq.Header.Set("X-Offloaded-For", o.host)
@@ -89,6 +95,7 @@ func (o *requestHandler) createProxyReq(originalReq *http.Request, target string
 func (r *requestHandler) handleRegisterActionRequest(w http.ResponseWriter, req *http.Request) {
 	// curl -X PUT 'http://localhost:9696/api/v1/namespaces/guest/actions/test?initPort=9000&numReplicas=10'
 	appName := strings.Split(req.URL.Path, "/")[6]
+	log.Printf("Handle register request for %s", appName)
 	if appName == "" {
 		http.Error(w, fmt.Sprintf("appName not present in URL Path: %q", req.URL.Path), http.StatusBadRequest)
 	}
@@ -125,9 +132,15 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	var resp *http.Response
 	var ctx *list.Element
 	appName := strings.Split(req.URL.Path, "/")[6]
+	log.Println("Recv req for applicaton", appName)
 	app, ok := r.applicationMap[appName]
 	if !ok {
 		http.Error(w, fmt.Sprintf("Application %s does not exist", appName), http.StatusNotFound)
+		log.Fatalf("Application %s does not exist", appName)
+	}
+
+	if app == nil {
+		log.Fatalf("app is nil for app %s", appName)
 	}
 
 	if app.offloader == nil {
@@ -244,20 +257,28 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		// }
 		port = <-app.portChan
 
+		contentLength := req.Header.Get("Content-Length")
 		proxyReq := r.createProxyReq(req, r.host, false, port)
+		proxyReq.Header.Add("Content-Length", contentLength)
+		proxyReq.Header.Add("Transfer-Encoding", "identity")
+		proxyReq.TransferEncoding = []string{"identity"}
+		proxyReq.ContentLength = req.ContentLength
 
 		var err error
 		resp, err = client.Do(proxyReq)
 
 		if err != nil {
 			//something bad happened
-			log.Println("local processing returned error", err)
+			log.Println("%s: local processing returned error %s", appName, err.Error())
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		} else if resp.StatusCode != http.StatusOK {
 			respmsg, _ := io.ReadAll(resp.Body)
-			log.Println(fmt.Sprintf("Bad http response: %s", string(respmsg)), resp.StatusCode)
+			log.Println(fmt.Sprintf("%s: Bad http response: %s", appName, string(respmsg)), resp.StatusCode)
 			http.Error(w, fmt.Sprintf("Bad http response: %s", string(respmsg)), resp.StatusCode)
+			dump, _ := httputil.DumpRequestOut(proxyReq, true)
+			log.Println(dump)
+			panic(nil)
 			return
 		} else {
 			// This is in the critical path.
@@ -295,6 +316,8 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	}
 
 	offloader.MetricSMDelete(metricCtx)
+	log.Println("Successfully handle request")
+	return
 }
 
 func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http.Request) {
@@ -348,7 +371,7 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 	}
 
 	// Marshal the results and write reply
-	log.Printf("Final resp is %s", string(traverseResultBytes))
+	//log.Printf("Final resp is %s", string(traverseResultBytes))
 	respBody := io.NopCloser(strings.NewReader(string(traverseResultBytes)))
 	io.Copy(w, respBody)
 	if respBody != nil {

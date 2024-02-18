@@ -12,23 +12,6 @@ class MyHandler(BaseHTTPRequestHandler):
     def do_POST(self):        
         content_buffer = BytesIO()
 
-        while True:
-            # Read the chunk size
-            line = self.rfile.readline().strip()
-            chunk_size = int(line, 16)
-
-            # If the chunk size is 0, it's the end of the content
-            if chunk_size == 0:
-                break
-
-            # Read the chunk
-            chunk = self.rfile.read(chunk_size)
-            content_buffer.write(chunk)
-
-            # Consume the trailing newline after each chunk
-            self.rfile.readline()
-
-        """
         if 'Content-Length' not in self.headers:
             self.send_error(411, 'Length Required: Content-Length header is missing')
             return
@@ -38,9 +21,8 @@ class MyHandler(BaseHTTPRequestHandler):
 
         # Read the request body
         body = self.rfile.read(content_length)
-        """
 
-        content = content_buffer.getvalue()
+        content = body
 
         args = {}
         try:
@@ -60,7 +42,7 @@ class MyHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'application/json')
         self.end_headers()
         self.wfile.write(output_json.encode('utf-8'))
-        print(output_dict)
+        #print(output_dict)
 
     def do_GET(self):
         self.do_POST()
