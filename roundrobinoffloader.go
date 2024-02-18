@@ -38,8 +38,8 @@ func (o *RoundRobinOffloader) GetOffloadCandidate(req *http.Request) string {
 func (o *RoundRobinOffloader) MetricSMAnalyze(ctx *list.Element) {
 
 	var timeElapsed time.Duration
-	if ((ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default")) {
-		if (ctx.Value.(*MetricSM).local) {
+	if (ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default") {
+		if ctx.Value.(*MetricSM).local {
 			timeElapsed = ctx.Value.(*MetricSM).postLocal.Sub(ctx.Value.(*MetricSM).preLocal)
 		} else {
 			timeElapsed = ctx.Value.(*MetricSM).postOffload.Sub(ctx.Value.(*MetricSM).preOffload)
