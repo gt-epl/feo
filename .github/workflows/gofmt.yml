@@ -18,7 +18,13 @@ jobs:
     - name: Check lint
       run: |
         format_output=$(gofmt -s -l .)
-        echo "Files that do not match gofmt"
-        echo "$format_output"
-        if [ "$(echo "$format_output" | wc -l)" -gt 0 ]; then exit 1; fi
-        exit 0
+        if [ "$(echo "$format_output" | wc -l)" -gt 1 ]
+        then
+          echo "Files that do not match gofmt"
+          echo "$format_output"
+          exit 1
+        else 
+          echo "All files match gofmt
+          exit 0
+        fi
+        
