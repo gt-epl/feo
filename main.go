@@ -13,6 +13,7 @@ import (
 
 	"flag"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"strings"
@@ -39,7 +40,9 @@ type requestHandler struct {
 
 var local, offload atomic.Int32
 
-var client http.Client
+var client = http.Client{
+	Timeout: 20 * time.Second,
+}
 
 func (o *requestHandler) createProxyReq(originalReq *http.Request, target string, isOffload bool, port string) *http.Request {
 	ODMN_PORT := "9696"
@@ -66,13 +69,16 @@ func (o *requestHandler) createProxyReq(originalReq *http.Request, target string
 	//NOTE: why do this? Because you can only read the body once, therefore you read it completely and store it in a buffer and repopulate the req body. source: https://stackoverflow.com/questions/43021058/golang-read-request-body-multiple-times
 
 	bodyBytes, _ := io.ReadAll(originalReq.Body)
-	newBody := io.NopCloser(bytes.NewBuffer(bodyBytes))
+	newBody := bytes.NewBuffer(bodyBytes)
 	originalReq.Body.Close() //  must close
 	originalReq.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	upstreamReq, err := http.NewRequest(originalReq.Method, url.String(), newBody)
 	upstreamReq.Header = originalReq.Header
 	upstreamReq.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
+	upstreamReq.Header.Add("Transfer-Encoding", "identity")
+	upstreamReq.TransferEncoding = []string{"identity"}
+	upstreamReq.ContentLength = originalReq.ContentLength
 
 	if isOffload {
 		upstreamReq.Header.Set("X-Offloaded-For", o.host)
@@ -244,7 +250,12 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 		// }
 		port = <-app.portChan
 
+		contentLength := req.Header.Get("Content-Length")
 		proxyReq := r.createProxyReq(req, r.host, false, port)
+		proxyReq.Header.Add("Content-Length", contentLength)
+		proxyReq.Header.Add("Transfer-Encoding", "identity")
+		proxyReq.TransferEncoding = []string{"identity"}
+		proxyReq.ContentLength = req.ContentLength
 
 		var err error
 		resp, err = client.Do(proxyReq)
