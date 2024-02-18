@@ -140,6 +140,12 @@ func (d *FaasEdgeDag) TraverseDag(rootID string, w http.ResponseWriter, req *htt
 		// Set execution time
 		invocTime := resp.Header.Get("Invoc-Time")
 		w.Header().Set(fmt.Sprintf("Invoc-Time-%s", vertexID), invocTime)
+		invocLoc := resp.Header.Get("Invoc-Loc")
+		w.Header().Set(fmt.Sprintf("Invoc-Loc-%s", vertexID), invocLoc)
+		instQueueDepth := resp.Header.Get("InstQLEN")
+		w.Header().Set(fmt.Sprintf("Invoc-Queue-Depth-%s", vertexID), instQueueDepth)
+		histQueueDepth := resp.Header.Get("HistQLEN")
+		w.Header().Set(fmt.Sprintf("Invoc-Historic-Depth-%s", vertexID), histQueueDepth)
 
 		if dv.ConditionalKey != "" {
 			var functionOutputJson map[string]interface{}
