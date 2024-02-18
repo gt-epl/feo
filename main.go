@@ -95,6 +95,7 @@ func (o *requestHandler) createProxyReq(originalReq *http.Request, target string
 func (r *requestHandler) handleRegisterActionRequest(w http.ResponseWriter, req *http.Request) {
 	// curl -X PUT 'http://localhost:9696/api/v1/namespaces/guest/actions/test?initPort=9000&numReplicas=10'
 	appName := strings.Split(req.URL.Path, "/")[6]
+	log.Printf("Handle register request for %s", appName)
 	if appName == "" {
 		http.Error(w, fmt.Sprintf("appName not present in URL Path: %q", req.URL.Path), http.StatusBadRequest)
 	}
@@ -131,9 +132,15 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	var resp *http.Response
 	var ctx *list.Element
 	appName := strings.Split(req.URL.Path, "/")[6]
+	log.Println("Recv req for applicaton", appName)
 	app, ok := r.applicationMap[appName]
 	if !ok {
 		http.Error(w, fmt.Sprintf("Application %s does not exist", appName), http.StatusNotFound)
+		log.Fatalf("Application %s does not exist", appName)
+	}
+
+	if app == nil {
+		log.Fatalf("app is nil for app %s", appName)
 	}
 
 	if app.offloader == nil {
@@ -262,13 +269,16 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 
 		if err != nil {
 			//something bad happened
-			log.Println("local processing returned error", err)
+			log.Println("%s: local processing returned error %s", appName, err.Error())
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		} else if resp.StatusCode != http.StatusOK {
 			respmsg, _ := io.ReadAll(resp.Body)
-			log.Println(fmt.Sprintf("Bad http response: %s", string(respmsg)), resp.StatusCode)
+			log.Println(fmt.Sprintf("%s: Bad http response: %s", appName, string(respmsg)), resp.StatusCode)
 			http.Error(w, fmt.Sprintf("Bad http response: %s", string(respmsg)), resp.StatusCode)
+			dump, _ := httputil.DumpRequestOut(proxyReq, true)
+			log.Println(dump)
+			panic(nil)
 			return
 		} else {
 			// This is in the critical path.
@@ -306,6 +316,8 @@ func (r *requestHandler) handleInvokeActionRequest(w http.ResponseWriter, req *h
 	}
 
 	offloader.MetricSMDelete(metricCtx)
+	log.Println("Successfully handle request")
+	return
 }
 
 func (r *requestHandler) handleUploadDagRequest(w http.ResponseWriter, req *http.Request) {
@@ -359,7 +371,7 @@ func (r *requestHandler) handleInvokeDagRequest(w http.ResponseWriter, req *http
 	}
 
 	// Marshal the results and write reply
-	log.Printf("Final resp is %s", string(traverseResultBytes))
+	//log.Printf("Final resp is %s", string(traverseResultBytes))
 	respBody := io.NopCloser(strings.NewReader(string(traverseResultBytes)))
 	io.Copy(w, respBody)
 	if respBody != nil {

@@ -44,11 +44,11 @@ func appendFlowResults(flowResults []dag.FlowResult) ([]byte, error) {
 	result := []byte{}
 
 	for idx, r := range flowResults {
-		log.Printf("Decoding parentresult for %s", r.ID)
+		log.Printf("Decoding result of function  %s", r.ID)
 		var itemBytes []byte
 		itemBytes, ok := r.Result.([]byte)
 		if !ok {
-			return nil, fmt.Errorf("failed to assert io.ReadCloser for parentBody %+v\n", r.Result)
+			return nil, fmt.Errorf("failed to assert []byte for parent %s\n", r.ID)
 		}
 		if idx == 0 {
 			result = append(result, itemBytes...)
