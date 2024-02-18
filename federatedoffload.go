@@ -11,88 +11,55 @@ import (
 	"github.com/mroth/weightedrand"
 )
 
+type QListInfo struct {
+	ts  time.Time
+	len int
+}
+
 type FederatedOffloader struct {
 	*BaseOffloader
 	cur_idx int
 
 	qlenMap map[string]float32
 	mapMu   sync.Mutex
-	qlen    float32
-	qlenMu  sync.RWMutex
-	wg      sync.WaitGroup
-	quit    chan bool
+	// wg              sync.WaitGroup
+	// quit            chan bool
+	// qlens_over_time []QListInfo
 }
 
 func NewFederatedOffloader(base *BaseOffloader) *FederatedOffloader {
 	fed := &FederatedOffloader{cur_idx: 0, BaseOffloader: base}
-	fed.Qlen_max = 2
+	fed.Qlen_max = 10
 	log.Println("[DEBUG] qlen_max = ", fed.Qlen_max)
 	fed.qlenMap = make(map[string]float32)
 	for _, r := range fed.RouterList {
 		fed.qlenMap[r.host] = 0
 	}
 
-	fed.wg.Add(1)
-	//go fed.stateUpdateRoutine()
+	// fed.wg.Add(1)
+	// go fed.stateUpdateRoutine()
 	return fed
-}
-
-func (o *FederatedOffloader) update_qlen() {
-	// defer o.wg.Done()
-
-	cur_qlen := o.Finfo.getSnapshot().Qlen
-
-	o.qlenMu.Lock()
-	o.qlen = 0.2*o.qlen + 0.8*float32(cur_qlen)
-	o.qlenMu.Unlock()
-	return
 }
 
 func (o *FederatedOffloader) CheckAndEnq(req *http.Request) (*list.Element, bool) {
 	log.Println("[DEBUG] in checkAndEnq")
-	appname := extractEntityName(req)
 
-	var historic_qlen float32
-	o.qlenMu.RLock()
-	historic_qlen = o.qlen
-	o.qlenMu.RUnlock()
-
-	var instantaneous_qlen float32
-	instantaneous_qlen = o.Finfo.getSnapshot().Qlen
-
-	log.Printf("[DEBUG ] %s Instantaneous qlen: %f, historic qlen: %f\n", appname, instantaneous_qlen, historic_qlen)
 	o.Finfo.mu.Lock()
 	defer o.Finfo.mu.Unlock()
 
-	isOffloaded := o.IsOffloaded(req)
-	cur_qlen := instantaneous_qlen
-	if isOffloaded {
-		cur_qlen = historic_qlen
-	}
+	instantaneous_qlen := o.Finfo.invoke_list.Len()
+	historic_qlen := o.Finfo.historic_qlen
 
-	log.Println("[DEBUG ] qlen: ", cur_qlen)
-	log.Println("[DEBUG] qlen_max", int(o.Qlen_max))
-	go o.update_qlen()
-	if int(cur_qlen) < int(o.Qlen_max) {
-		log.Println("[DEBUG] inside if branch", int(o.Qlen_max))
-		return o.Finfo.invoke_list.PushBack(time.Now()), true
+	// appname := extractEntityName(req)
+	// log.Printf("[DEBUG ] %s Instantaneous qlen: %f, historic qlen: %f\n", appname, instantaneous_qlen, historic_qlen)
+
+	cur_time := time.Now()
+
+	o.qlen_info_chan <- QListInfo{cur_time, instantaneous_qlen + 1}
+	if historic_qlen < float32(o.Qlen_max) {
+		return o.Finfo.invoke_list.PushBack(cur_time), true
 	} else {
 		return nil, false
-	}
-}
-
-func (o *FederatedOffloader) stateUpdateRoutine() {
-	defer o.wg.Done()
-
-	qlen_timer := time.NewTicker(time.Duration(100) * time.Millisecond)
-	for {
-		select {
-		case <-o.quit:
-			return
-		case <-qlen_timer.C:
-			o.wg.Add(1)
-			go o.update_qlen()
-		}
 	}
 }
 
@@ -130,11 +97,12 @@ func (o *FederatedOffloader) Close() {
 
 func (o *FederatedOffloader) GetStatusStr() string {
 	log.Println("[DEBUG] in federated getStatusStr")
-	snap := Snapshot{}
-	o.qlenMu.RLock()
-	snap.Qlen = o.qlen
-	o.qlenMu.RUnlock()
-	snap.HasCapacity = (snap.Qlen <= float32(o.Qlen_max))
+	// snap := Snapshot{}
+	snap := o.Finfo.getSnapshot()
+	// o.qlenMu.RLock()
+	// snap.Qlen = o.qlen
+	// o.qlenMu.RUnlock()
+	snap.HasCapacity = (snap.Qlen <= int(o.Qlen_max))
 	jbytes, err := json.Marshal(snap)
 	if err != nil {
 		log.Println("[WARNING] could not marshall status: ", err)
@@ -146,7 +114,7 @@ func (o *FederatedOffloader) GetStatusStr() string {
 func (o *FederatedOffloader) PostOffloadUpdate(snap Snapshot, target string) {
 	o.mapMu.Lock()
 	defer o.mapMu.Unlock()
-	o.qlenMap[target] = snap.Qlen
+	o.qlenMap[target] = float32(snap.Qlen)
 }
 
 func (o *FederatedOffloader) MetricSMAnalyze(ctx *list.Element) {

@@ -3,6 +3,7 @@ package main
 import (
 	"container/list"
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -33,7 +34,7 @@ type EpochOffloader struct {
 
 func NewEpochOffloader(base *BaseOffloader) *EpochOffloader {
 	fed := &EpochOffloader{BaseOffloader: base}
-	fed.Qlen_max = 2
+	fed.Qlen_max = 5
 	fed.gap_ms = 1000
 	fed.epoch_ms = 2000
 	fed.quit = make(chan bool)
@@ -154,22 +155,23 @@ func (o *EpochOffloader) Close() {
 func (o *EpochOffloader) GetOffloadCandidate(req *http.Request) string {
 	minv := float32(10000)
 	var candidate string
-
+	var state string
 	for k, v := range o.nodemap {
-		// log.Println("[DEBUG] mapele: ", k, v.qlen)
+		state += fmt.Sprintf("(%s,%f),", k, v)
 		if v < minv {
 			candidate = k
 			minv = v
 		}
 	}
+	log.Println("[DEBUG] lstate: ", state)
 	return candidate
 }
 
 func (o *EpochOffloader) MetricSMAnalyze(ctx *list.Element) {
 
 	var timeElapsed time.Duration
-	if ((ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default")) {
-		if (ctx.Value.(*MetricSM).local) {
+	if (ctx.Value.(*MetricSM).state == FinalState) && (ctx.Value.(*MetricSM).candidate != "default") {
+		if ctx.Value.(*MetricSM).local {
 			timeElapsed = ctx.Value.(*MetricSM).postLocal.Sub(ctx.Value.(*MetricSM).preLocal)
 		} else {
 			timeElapsed = ctx.Value.(*MetricSM).postOffload.Sub(ctx.Value.(*MetricSM).preOffload)
