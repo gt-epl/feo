@@ -16,7 +16,7 @@ jobs:
       with:
         go-version: '1.21.1'
     - name: Check lint
-      run: 
+      run: |
         format_output=$(gofmt -s -l .)
         echo "Files that do not match gofmt"
         echo "$format_output"
