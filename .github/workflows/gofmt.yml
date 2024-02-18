@@ -16,4 +16,8 @@ jobs:
       with:
         go-version: '1.21.1'
     - name: Check lint
-      run: if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
+      run: 
+        format_output=$(gofmt -s -l .)
+        echo "Files that do not match gofmt"
+        echo "$format_output"
+        if [ "$(echo "$format_output" | wc -l)" -gt 0 ]; then exit 1; fi
