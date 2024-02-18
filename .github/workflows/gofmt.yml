@@ -24,7 +24,7 @@ jobs:
           echo "$format_output"
           exit 1
         else 
-          echo "All files match gofmt
+          echo "All files match gofmt"
           exit 0
         fi
         
