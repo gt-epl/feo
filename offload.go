@@ -19,6 +19,7 @@ type router struct {
 type OffloadPolicy string
 
 const (
+	OffloadBase        = "base"
 	OffloadRoundRobin  = "roundrobin"
 	OffloadRandom      = "random"
 	OffloadFederated   = "federated"
@@ -78,6 +79,9 @@ func OffloadFactory(pol OffloadPolicy, config FeoConfig) OffloaderIntf {
 	case OffloadEpoch:
 		log.Println("[INFO] Selecting Epoch Offloader")
 		return NewEpochOffloader(base)
+	case OffloadBase:
+		log.Println("[INFO] Selecting Base Offloader")
+		return base
 	default:
 		log.Println("[WARNING] No policy specified. Selecting Base Offloader")
 		return base
