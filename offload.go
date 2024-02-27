@@ -135,9 +135,12 @@ func (o *BaseOffloader) update_qlen() {
 				qlen_arr = append(qlen_arr, float64(v.len))
 			}
 			// res, _ := stats.Percentile(qlen_arr, pctl)
-			// if !math.IsNaN(res) {
-			// 	o.Finfo.set_historic_qlen(float32(res))
-			// }
+			//res, _ := stats.Mean(qlen_arr)
+			//if !math.IsNaN(res) {
+			//	o.Finfo.set_historic_qlen(float32(res))
+			//} else {
+			//	o.Finfo.set_historic_qlen(-1)
+			//}
 			o.Finfo.set_historic_qlen(-1)
 
 		}
@@ -255,13 +258,15 @@ func (o *BaseOffloader) CheckAndEnq(req *http.Request) (*list.Element, bool) {
 	o.Finfo.mu.Lock()
 	defer o.Finfo.mu.Unlock()
 	instantaneous_qlen := o.Finfo.invoke_list.Len()
+	historic_qlen := o.Finfo.historic_qlen
 
 	log.Println("[DEBUG ]qlen: ", instantaneous_qlen)
+	log.Println("[DEBUG ]hqlen: ", historic_qlen)
 	log.Println("[DEBUG] qlen_max", int(o.Qlen_max))
 
 	cur_time := time.Now()
 	o.qlen_info_chan <- QListInfo{cur_time, instantaneous_qlen + 1}
-	if instantaneous_qlen < int(o.Qlen_max) {
+	if historic_qlen < float32(o.Qlen_max) {
 		log.Println("[DEBUG] inside if branch", int(o.Qlen_max))
 		return o.Finfo.invoke_list.PushBack(cur_time), true
 	} else {

@@ -120,7 +120,7 @@ func (r *requestHandler) handleRegisterActionRequest(w http.ResponseWriter, req 
 		offloader = OffloadFactory(r.policy, r.config)
 	}
 	if r.policy != OffloadBase {
-		offloader.SetMaxQlen(int32(numReplicas) * 2)
+		offloader.SetMaxQlen(int32(numReplicas))
 	}
 
 	// Note, calling this request multiple times for the same appName will result in a completely new offloader & portChan created.
