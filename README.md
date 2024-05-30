@@ -4,9 +4,9 @@
 ### Cloning Repositories
 Clone the following repositories. Refer to [this section below](#-copying-files-to-each-node) for a description on different cloning options
 ```
-git clone git@github.gatech.edu:faasedge/feo.git
-git clone git@github.gatech.edu:faasedge/loadgen.git
-git clone git@github.gatech.edu:faasedge/feo-notebooks.git
+git clone git@github.com:gt-epl/feo.git
+git clone git@github.com:gt-epl/feo-loadgen.git
+git clone git@github.com:gt-epl/feo-notebooks.git
 ```
 
 
